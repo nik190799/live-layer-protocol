@@ -15,7 +15,7 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `layers/stats-c/stats.c` | Footer layer (C) |
 | `layers/variants/` | v2 (migration), broken, crashing, and hanging/memory-hogging variants used in tests |
 | `test/run.mjs` | The 14 core proof tests (in-process) |
-| `test/sandbox.mjs` | 15 tests of the worker sandbox: infinite loops in view, event and migrate, memory blowup, UI flood |
+| `test/sandbox.mjs` | 16 tests of the worker sandbox: infinite loops in view, event and migrate, memory blowup, UI flood, input ordering |
 | `test/browser.mjs` | The sandbox in real Chromium (needs Playwright; not part of `npm test`) |
 | `test/service.mjs` | 10 tests of the per-device service |
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
@@ -31,7 +31,7 @@ Requires Node 22+. The compiled layers are committed in `build/`, so no compiler
 git clone https://github.com/nik190799/live-layer-protocol.git
 cd live-layer-protocol
 npm install
-npm test          # 49 checks: core rules, the layer sandbox, the service, and live over-the-wire attacks
+npm test          # 50 checks: core rules, the layer sandbox, the service, and live over-the-wire attacks
 ```
 
 ### Watch it update live

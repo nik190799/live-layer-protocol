@@ -449,7 +449,12 @@ class LiveHost {
   }
 
   log(kind, msg, extra = {}) { const e = { t: Date.now(), kind, msg, ...extra }; this.history.push(e); this.onLog(e); }
-  exclusive(fn) { const r = this.queue.then(fn); this.queue = r.catch(() => {}); return r; }
+  exclusive(fn) {
+    this.pending = (this.pending ?? 0) + 1;
+    const r = this.queue.then(fn).finally(() => { this.pending--; });
+    this.queue = r.catch(() => {});
+    return r;
+  }
 
   // ---------- layer instances (each in its own worker) ----------
   async load(slot, hash) {
@@ -613,8 +618,9 @@ class LiveHost {
     return false;
   }
 
-  // Inputs bound to state write straight into the host store (no layer call needed).
-  setBound(key, value) { this.kv.set(key, value); }
+  // Inputs bound to state write straight into the host store (no layer call needed). If calls are
+  // still queued, the write waits its turn, so "type A, click, type B, click" keeps its order.
+  setBound(key, value) { if (this.pending) this.exclusive(() => { this.kv.set(key, value); }); else this.kv.set(key, value); }
 
   // Stop every layer worker (lets a Node process exit at once; a browser tab doesn't need it).
   close() {

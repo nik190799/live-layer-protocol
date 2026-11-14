@@ -89,6 +89,14 @@ host.setBound("draft", "Still alive"); await host.dispatch("main", "add");
 r = await ship(hang);
 check("S11 app still takes events and swaps after every kill", host.kv.get("tasks.n") === n0 + 1 && r.ok && screen().includes("Still alive"), screen());
 
+// 7b. Inputs and clicks sent back-to-back without waiting keep their order.
+const nOrder = host.kv.get("tasks.n");
+host.setBound("draft", "First"); const c1 = host.dispatch("main", "add");
+host.setBound("draft", "Second"); const c2 = host.dispatch("main", "add");
+await Promise.all([c1, c2]);
+check("S11b typed input and clicks sent without waiting keep their order", host.kv.get("tasks.n") === nOrder + 2 && host.kv.get(`tasks.${nOrder}.text`) === "First" && host.kv.get(`tasks.${nOrder + 1}.text`) === "Second",
+  `${host.kv.get(`tasks.${nOrder}.text`)}, ${host.kv.get(`tasks.${nOrder + 1}.text`)}`);
+
 // 8. No previous version: the slot shows an error for that render, then recovers in a fresh worker.
 const solo = new LiveHost({ onRender: (t) => { lastTree = t; } });
 solo.setBound("draft", "");
