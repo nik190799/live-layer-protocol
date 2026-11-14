@@ -1,0 +1,10 @@
+import { readFileSync } from "node:fs";
+import { LiveHost, b64 } from "../host/llp-core.js";
+const D = process.argv[2];
+const doc = JSON.parse(readFileSync(D + "/llp/manifest.json", "utf8"));
+const d = doc.data ?? doc;
+let out;
+const host = new LiveHost({ trustedKeys: [d.pub], onRender: (s) => out = s });
+const r = await host.apply(d.manifest, d.sig, async (h) => { const b = JSON.parse(readFileSync(D + "/blobs/" + h + ".json", "utf8")); return b64.dec(b.data); });
+console.log("browser-published manifest on Node host:", r.ok ? "LIVE in " + r.ms + " ms" : "REJECTED " + r.reason);
+console.log("heading:", out?.[0]?.tree?.c?.[0]?.c?.[0]?.t);

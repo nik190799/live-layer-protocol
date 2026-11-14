@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live Layer</title>
+<style>
+:root {
+  --bg: #e9edf2; --panel: #f8fafc; --ink: #121821; --muted: #5a6575; --line: #cfd6e0;
+  --accent: #2c46e8; --accent-ink: #fff; --live: #12855a; --warn: #b4520a; --bad: #c0283c;
+  --app-bg: #fff; --app-ink: #18202b; --app-sub: #657085; --app-line: #e3e7ee; --app-press: #eef1f6;
+  --f-display: "Bahnschrift", "Segoe UI Variable Display", "Avenir Next", system-ui, sans-serif;
+  --f-body: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #0c1016; --panel: #141a23; --ink: #e5e9f0; --muted: #8e99aa; --line: #263040;
+  --accent: #7d8dff; --accent-ink: #0c1016; --live: #4fd197; --warn: #f0a050; --bad: #ff6b7d;
+  --app-bg: #1a212c; --app-ink: #e8ecf3; --app-sub: #97a2b4; --app-line: #2b3545; --app-press: #232c39; color-scheme: dark; } }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+.wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+h1 { font: 700 26px/1.1 var(--f-display); margin: 0; letter-spacing: -0.01em; }
+.eyebrow { font: 600 11px/1 var(--f-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font: 600 12px/1 var(--f-mono); padding: 6px 9px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+.chip.off i { background: var(--bad); }
+.grid { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 820px) { .grid { grid-template-columns: 400px minmax(0, 1fr); align-items: start; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+h2 { font: 700 17px/1.2 var(--f-display); margin: 0; }
+.apps { display: flex; gap: 8px; flex-wrap: wrap; }
+.apps a { text-decoration: none; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--bg); font-weight: 600; }
+.apps a[aria-current="page"] { border-color: var(--accent); color: var(--accent); }
+.screen { background: var(--app-bg); color: var(--app-ink); border: 1px solid var(--app-line); border-radius: 14px; padding: 16px; min-height: 320px; transition: box-shadow .25s; }
+.screen.swap { box-shadow: 0 0 0 3px var(--accent); }
+.screen.buzz { animation: buzz .18s linear 2; }
+@keyframes buzz { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+@media (prefers-reduced-motion: reduce) { .screen.buzz { animation: none; } }
+.slot { position: relative; } .slot + .slot { margin-top: 14px; }
+.slotname { position: absolute; right: 0; top: 0; font: 600 10px/1 var(--f-mono); color: var(--app-sub); text-transform: uppercase; letter-spacing: .06em; }
+.u-col { display: flex; flex-direction: column; gap: 10px; }
+.u-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.u-row > .u-input { flex: 1 1 140px; }
+.u-card { border: 1px solid var(--app-line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.u-heading { font: 700 22px/1.15 var(--f-display); margin: 0; }
+.u-label { color: var(--app-sub); font-size: 13px; }
+.u-big { font: 700 22px/1 var(--f-display); font-variant-numeric: tabular-nums; }
+.u-button { font: 600 14px/1 var(--f-body); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--app-line); background: var(--app-press); color: var(--app-ink); cursor: pointer; }
+.u-button[data-style="primary"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.u-input { font: 15px var(--f-body); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--app-line); background: var(--app-bg); color: var(--app-ink); min-width: 0; }
+.u-toggle { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border: 0; border-bottom: 1px solid var(--app-line); background: none; color: var(--app-ink); font: 15px var(--f-body); text-align: left; width: 100%; cursor: pointer; }
+.u-toggle .box { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--app-sub); flex: none; }
+.u-toggle[aria-pressed="true"] .box { background: var(--live); border-color: var(--live); }
+.u-toggle[aria-pressed="true"] .t { color: var(--app-sub); text-decoration: line-through; }
+.u-progress { height: 8px; border-radius: 99px; background: var(--app-press); overflow: hidden; }
+.u-progress > i { display: block; height: 100%; background: var(--live); transition: width .3s; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fact { background: var(--bg); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.fact b { display: block; font: 600 15px var(--f-mono); overflow: hidden; text-overflow: ellipsis; }
+.fact span { font-size: 12px; color: var(--muted); }
+ul.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 360px; overflow: auto; }
+ul.log li { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; font-size: 13.5px; padding: 7px 10px; border-radius: 10px; background: var(--bg); }
+ul.log .k { font: 600 11px/1.5 var(--f-mono); text-transform: uppercase; }
+.k.swap { color: var(--live); } .k.reject, .k.error { color: var(--bad); } .k.rollback { color: var(--warn); } .k.cap, .k.layer { color: var(--accent); }
+.m { overflow-wrap: anywhere; }
+code { font: 13px var(--f-mono); background: var(--bg); padding: 2px 6px; border-radius: 6px; }
+pre { font: 12.5px/1.6 var(--f-mono); background: var(--bg); padding: 12px; border-radius: 10px; overflow-x: auto; margin: 0; }
+.hint { color: var(--muted); font-size: 13.5px; margin: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><div class="eyebrow">Live Layer service · this device</div><h1 id="title">Live apps</h1></div>
+    <span class="chip off" id="chip"><i></i><span id="chip-t">connecting</span></span>
+  </header>
+  <nav class="apps" id="apps" aria-label="Installed apps"></nav>
+  <div class="grid" id="main" hidden>
+    <div class="panel">
+      <div class="screen" id="screen" aria-live="polite"></div>
+      <div class="facts">
+        <div class="fact"><b id="f-ver">—</b><span>version</span></div>
+        <div class="fact"><b id="f-ms">—</b><span>last swap</span></div>
+        <div class="fact"><b id="f-main">—</b><span>layers</span></div>
+      </div>
+    </div>
+    <div class="panel"><h2>Stream log</h2><ul class="log" id="log"></ul></div>
+  </div>
+  <div class="panel" id="empty" hidden>
+    <h2>No apps yet</h2>
+    <p class="hint">Push one from a terminal on this device. The service keeps it running and keeps its state, even after a restart.</p>
+    <pre>llp push demo.tasks main=tasks.wasm footer=stats.wasm</pre>
+  </div>
+</div>
+<script>
+const $ = (id) => document.getElementById(id);
+const app = new URLSearchParams(location.search).get("app");
+const cid = Math.random().toString(36).slice(2);
+let ws, lastVersion = 0;
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ui` + (app ? `?app=${encodeURIComponent(app)}` : ""));
+  ws.onopen = () => { $("chip").className = "chip"; $("chip-t").textContent = app ? "live" : "service running"; };
+  ws.onclose = () => { $("chip").className = "chip off"; $("chip-t").textContent = "service offline, retrying"; setTimeout(connect, 1500); };
+  ws.onmessage = (ev) => {
+    const m = JSON.parse(ev.data);
+    if (m.t === "apps") listApps(m.apps);
+    if (m.t === "render") render(m);
+    if (m.t === "log") logLine(m.entry);
+    if (m.t === "bound" && m.from !== cid) syncInput(m.key, m.value);
+    if (m.t === "fx" && m.name === "haptic") { const s = $("screen"); s.classList.remove("buzz"); void s.offsetWidth; s.classList.add("buzz"); }
+    if (m.t === "error") { $("title").textContent = m.msg; }
+  };
+}
+async function listApps(list) {
+  const nav = $("apps"); nav.replaceChildren();
+  for (const a of list) { const l = document.createElement("a"); l.href = "?app=" + encodeURIComponent(a.name); l.textContent = a.name; if (a.name === app) l.setAttribute("aria-current", "page"); nav.appendChild(l); }
+  $("empty").hidden = list.length > 0 || !!app;
+}
+const send = (m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
+const txt = (n) => (n.c || []).filter((c) => c.k === "text").map((c) => c.t).join("");
+const bound = {};
+function make(n, slot) {
+  const a = n.a || {}; let el;
+  switch (n.k) {
+    case "text": return document.createTextNode(n.t);
+    case "heading": el = document.createElement("h3"); el.className = "u-heading"; el.textContent = txt(n); return el;
+    case "label": case "big": el = document.createElement("div"); el.className = "u-" + n.k; el.textContent = txt(n); return el;
+    case "button": el = document.createElement("button"); el.className = "u-button"; el.type = "button"; el.textContent = txt(n); if (a.style) el.dataset.style = a.style;
+      el.onclick = () => send({ t: "event", slot, id: a.id }); return el;
+    case "toggle": el = document.createElement("button"); el.className = "u-toggle"; el.type = "button"; el.setAttribute("aria-pressed", a.on === "1");
+      el.innerHTML = '<span class="box"></span><span class="t"></span>'; el.lastChild.textContent = txt(n); el.onclick = () => send({ t: "event", slot, id: a.id }); return el;
+    case "input": el = document.createElement("input"); el.className = "u-input"; el.id = `in-${slot}-${a.bind}`; el.placeholder = a.placeholder || ""; el.dataset.bind = a.bind;
+      el.value = bound[a.bind] ?? ""; el.oninput = () => { bound[a.bind] = el.value; send({ t: "bind", key: a.bind, value: el.value, cid }); };
+      el.onkeydown = (e) => { if (e.key === "Enter" && a.submit) { send({ t: "event", slot, id: a.submit }); bound[a.bind] = ""; } }; return el;
+    case "progress": el = document.createElement("div"); el.className = "u-progress"; el.innerHTML = "<i></i>"; el.firstChild.style.width = Math.max(0, Math.min(100, +a.value || 0)) + "%"; return el;
+    default: el = document.createElement("div"); el.className = "u-" + (["col", "row", "card"].includes(n.k) ? n.k : "col"); for (const c of n.c || []) el.appendChild(make(c, slot)); return el;
+  }
+}
+function syncInput(key, value) { bound[key] = value; document.querySelectorAll(`[data-bind="${CSS.escape(key)}"]`).forEach((el) => { if (el !== document.activeElement) el.value = value; }); }
+function render(m) {
+  for (const [k, v] of Object.entries(m.binds || {})) bound[k] = v;
+  $("main").hidden = false; $("title").textContent = app;
+  const f = document.activeElement; const keep = f?.dataset?.bind ? { id: f.id, s: f.selectionStart, e: f.selectionEnd } : null;
+  const frag = document.createDocumentFragment();
+  for (const s of m.slots || []) {
+    const box = document.createElement("div"); box.className = "slot";
+    const tag = document.createElement("div"); tag.className = "slotname"; tag.textContent = s.slot; box.appendChild(tag);
+    box.appendChild(s.error ? Object.assign(document.createElement("div"), { textContent: s.error }) : make(s.tree, s.slot));
+    frag.appendChild(box);
+  }
+  $("screen").replaceChildren(frag);
+  if (keep) { const el = document.getElementById(keep.id); if (el) { el.focus(); try { el.setSelectionRange(keep.s, keep.e); } catch {} } }
+  $("f-ver").textContent = m.version ? String(m.version).slice(-6) : "—";
+  $("f-main").textContent = Object.keys(m.layers || {}).length || "—";
+  if (lastVersion && m.version !== lastVersion) { const s = $("screen"); s.classList.add("swap"); setTimeout(() => s.classList.remove("swap"), 450); }
+  lastVersion = m.version;
+}
+function logLine(e) {
+  const li = document.createElement("li"); li.innerHTML = '<span class="k"></span><span class="m"></span>';
+  li.firstChild.textContent = e.kind; li.firstChild.classList.add(e.kind); li.lastChild.textContent = e.msg.replace(/v(\d{7,})/g, (_, v) => "v" + v.slice(-6));
+  $("log").prepend(li);
+  if (e.kind === "swap" && e.ms != null) $("f-ms").textContent = e.ms + " ms";
+}
+async function poll() {
+  try { const r = await (await fetch("/status")).json(); listApps(r.apps); $("chip").className = "chip"; $("chip-t").textContent = "service running on " + r.device; }
+  catch { $("chip").className = "chip off"; $("chip-t").textContent = "service offline"; }
+}
+poll(); setInterval(poll, 3000);
+if (app) connect();
+</script>
+</body>
+</html>

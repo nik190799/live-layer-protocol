@@ -1,0 +1,679 @@
+<title>Live Layer Host</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<script type="importmap">
+{ "imports": {
+  "assemblyscript": "https://cdn.jsdelivr.net/npm/assemblyscript@0.28.20/dist/assemblyscript.js",
+  "assemblyscript/asc": "https://cdn.jsdelivr.net/npm/assemblyscript@0.28.20/dist/asc.js",
+  "binaryen": "https://cdn.jsdelivr.net/npm/binaryen@131.0.0-nightly.20260721/index.js",
+  "long": "https://cdn.jsdelivr.net/npm/long@5.3.2/index.js"
+} }
+</script>
+<style>
+/* Layout: a running device on the left (sticky on wide screens), the stream console on the right; one column on phones. */
+:root {
+  --bg: #e9edf2; --panel: #f8fafc; --ink: #121821; --muted: #5a6575; --line: #cfd6e0;
+  --accent: #2c46e8; --accent-ink: #ffffff; --live: #12855a; --warn: #b4520a; --bad: #c0283c;
+  --app-bg: #ffffff; --app-ink: #18202b; --app-sub: #657085; --app-line: #e3e7ee; --app-press: #eef1f6;
+  --code-bg: #0f141b; --code-ink: #d9e1ec;
+  --f-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --f-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0c1016; --panel: #141a23; --ink: #e5e9f0; --muted: #8e99aa; --line: #263040;
+  --accent: #7d8dff; --accent-ink: #0c1016; --live: #4fd197; --warn: #f0a050; --bad: #ff6b7d;
+  --app-bg: #1a212c; --app-ink: #e8ecf3; --app-sub: #97a2b4; --app-line: #2b3545; --app-press: #232c39;
+  --code-bg: #080b10; --code-ink: #d9e1ec; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0c1016; --panel: #141a23; --ink: #e5e9f0; --muted: #8e99aa; --line: #263040;
+  --accent: #7d8dff; --accent-ink: #0c1016; --live: #4fd197; --warn: #f0a050; --bad: #ff6b7d;
+  --app-bg: #1a212c; --app-ink: #e8ecf3; --app-sub: #97a2b4; --app-line: #2b3545; --app-press: #232c39;
+  --code-bg: #080b10; --code-ink: #d9e1ec; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); margin: 0; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 20px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 18px; }
+h1 { font: 800 clamp(26px, 5vw, 38px)/1.05 var(--f-display); letter-spacing: -0.02em; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); margin: 6px 0 0; max-width: 60ch; }
+.grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 880px) { .grid { grid-template-columns: 380px minmax(0, 1fr); align-items: start; } .device-col { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); } }
+
+.eyebrow { font: 600 11px/1 var(--f-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+/* Device */
+.device { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 12px; }
+.device-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 6px 10px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font: 600 12px/1 var(--f-mono); padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 3px color-mix(in srgb, var(--live) 25%, transparent); }
+.chip.warn .dot { background: var(--warn); } .chip.bad .dot { background: var(--bad); }
+.screen { background: var(--app-bg); color: var(--app-ink); border-radius: 14px; border: 1px solid var(--app-line); padding: 16px; min-height: 360px; position: relative; overflow: hidden; transition: box-shadow .25s; }
+.screen.swap { box-shadow: 0 0 0 3px var(--accent); }
+.screen.buzz { animation: buzz .18s linear 2; }
+@keyframes buzz { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+@media (prefers-reduced-motion: reduce) { .screen.buzz { animation: none; } .screen { transition: none; } }
+.slotname { position: absolute; right: 8px; font: 600 10px/1 var(--f-mono); color: var(--app-sub); opacity: .7; letter-spacing: .06em; text-transform: uppercase; }
+.slot { position: relative; padding-top: 2px; }
+.slot + .slot { margin-top: 14px; }
+.slot-err { color: var(--bad); font: 13px var(--f-mono); }
+
+/* Host-native rendering of the LLP UI vocabulary */
+.u-col { display: flex; flex-direction: column; gap: 10px; }
+.u-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.u-row > .u-input { flex: 1 1 140px; }
+.u-card { border: 1px solid var(--app-line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.u-heading { font: 700 22px/1.15 var(--f-display); letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+.u-label { color: var(--app-sub); font-size: 13px; }
+.u-big { font: 800 22px/1 var(--f-display); font-variant-numeric: tabular-nums; }
+.u-button { font: 600 14px/1 var(--f-body); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--app-line); background: var(--app-press); color: var(--app-ink); cursor: pointer; }
+.u-button[data-style="primary"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.u-button:active { transform: translateY(1px); }
+.u-input { font: 15px var(--f-body); padding: 10px 12px; border-radius: 10px; border: 1px solid var(--app-line); background: var(--app-bg); color: var(--app-ink); min-width: 0; }
+.u-toggle { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--app-line); cursor: pointer; text-align: left; background: none; border-top: 0; border-left: 0; border-right: 0; color: var(--app-ink); font: 15px var(--f-body); width: 100%; }
+.u-toggle .box { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--app-sub); flex: none; display: grid; place-items: center; }
+.u-toggle[aria-pressed="true"] .box { background: var(--live); border-color: var(--live); }
+.u-toggle[aria-pressed="true"] .box::after { content: ""; width: 9px; height: 5px; border-left: 2px solid var(--app-bg); border-bottom: 2px solid var(--app-bg); transform: rotate(-45deg) translate(1px, -1px); }
+.u-toggle[aria-pressed="true"] .t { color: var(--app-sub); text-decoration: line-through; }
+.u-progress { height: 8px; border-radius: 99px; background: var(--app-press); overflow: hidden; }
+.u-progress > i { display: block; height: 100%; background: var(--live); transition: width .3s; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.fact { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-width: 0; }
+.fact b { display: block; font: 600 16px/1.2 var(--f-mono); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
+.fact span { font-size: 12px; color: var(--muted); }
+
+/* Console */
+section.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.stack { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+h2 { font: 700 19px/1.2 var(--f-display); margin: 0; }
+.hint { color: var(--muted); font-size: 13.5px; margin: 0; max-width: 65ch; }
+.pushes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.push { text-align: left; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 12px; padding: 11px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; font: inherit; }
+.push:hover { border-color: var(--accent); }
+.push b { font-weight: 600; }
+.push span { font-size: 12.5px; color: var(--muted); }
+.push[data-kind="bad"] b::before { content: "✕ "; color: var(--bad); }
+.push[data-kind="good"] b::before { content: "↑ "; color: var(--live); }
+
+.log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow: auto; }
+.log li { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; font-size: 13.5px; padding: 8px 10px; border-radius: 10px; background: var(--bg); align-items: baseline; }
+.log .k { font: 600 11px/1.4 var(--f-mono); text-transform: uppercase; letter-spacing: .06em; }
+.log .k.swap { color: var(--live); } .log .k.reject, .log .k.error { color: var(--bad); } .log .k.rollback { color: var(--warn); } .log .k.cap, .log .k.net, .log .k.layer { color: var(--accent); }
+.log .m { min-width: 0; overflow-wrap: anywhere; }
+
+details.editor summary { cursor: pointer; font: 700 19px/1.2 var(--f-display); list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+details.editor summary::-webkit-details-marker { display: none; }
+details.editor summary::after { content: "Open"; font: 600 12px var(--f-mono); color: var(--accent); }
+details.editor[open] summary::after { content: "Close"; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tab { font: 600 12px var(--f-mono); padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); cursor: pointer; }
+.tab[aria-selected="true"] { color: var(--ink); border-color: var(--ink); }
+textarea.code { width: 100%; min-height: 320px; background: var(--code-bg); color: var(--code-ink); border: 0; border-radius: 12px; padding: 14px; font: 12.5px/1.55 var(--f-mono); tab-size: 2; resize: vertical; white-space: pre; overflow: auto; }
+.btn { font: 600 14px/1 var(--f-body); padding: 12px 16px; border-radius: 10px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); cursor: pointer; }
+.btn.ghost { background: transparent; color: var(--accent); }
+.btn:disabled { opacity: .55; cursor: progress; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.status { font-size: 13px; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+pre.err { background: var(--code-bg); color: #ff9aa8; padding: 12px; border-radius: 10px; font: 12px/1.5 var(--f-mono); overflow-x: auto; margin: 0; white-space: pre-wrap; }
+.devices { display: flex; flex-direction: column; gap: 6px; }
+.devices .d { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; padding: 8px 10px; background: var(--bg); border-radius: 10px; }
+.trust { border: 1px solid var(--warn); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.flow div { background: var(--bg); border-radius: 10px; padding: 9px; font-size: 12.5px; color: var(--muted); }
+.flow b { display: block; color: var(--ink); font: 600 12px var(--f-mono); margin-bottom: 2px; }
+@media (max-width: 520px) { .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); } .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Live Layer Protocol · v0 reference host</div>
+      <h1>Live Layer Host</h1>
+      <p class="sub">A running app that takes new code as a stream. Push a layer below and watch it swap in place, with your tasks intact. Open this page on a second device to stream between them.</p>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="device-col">
+      <div class="device" id="device">
+        <div class="device-bar">
+          <span class="eyebrow">demo.tasks</span>
+          <span class="chip" id="chip"><span class="dot"></span><span id="chip-text">booting</span></span>
+        </div>
+        <div class="screen" id="screen" aria-live="polite"></div>
+      </div>
+      <div class="facts">
+        <div class="fact"><b id="f-build">—</b><span>build</span></div>
+        <div class="fact"><b id="f-ms">—</b><span>last swap</span></div>
+        <div class="fact"><b id="f-hash">—</b><span>main layer</span></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <section class="panel">
+        <h2>Push a layer</h2>
+        <p class="hint">Each button signs a new manifest and streams it to this host and to every other device with this page open. The host verifies it, runs it once against your real state, and only then swaps it in.</p>
+        <div class="pushes">
+          <button class="push" data-kind="good" data-push="v2"><b>Tasks v2</b><span>New title plus a state migration (schema 1 → 2)</span></button>
+          <button class="push" data-kind="good" data-push="v1"><b>Tasks v1</b><span>The original main layer</span></button>
+          <button class="push" data-kind="bad" data-push="broken"><b>Broken layer</b><span>Renders an unclosed element; should be refused</span></button>
+          <button class="push" data-kind="bad" data-push="trap"><b>Layer that crashes</b><span>Goes live, then crashes on Add; should auto-revert</span></button>
+          <button class="push" data-kind="bad" data-push="untrusted"><b>Unknown signer</b><span>Valid code, signed by a key this host doesn't trust</span></button>
+          <button class="push" data-kind="bad" data-push="tamper"><b>Tampered code</b><span>Blob bytes don't match the signed hash</span></button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Stream log</h2>
+        <ul class="log" id="log"></ul>
+      </section>
+
+      <section class="panel">
+        <details class="editor" id="editor">
+          <summary>Edit the code live</summary>
+          <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+            <p class="hint">The main layer is AssemblyScript; the progress card is C. Edit the main layer, then compile it right here in the browser and stream it. The first compile downloads the compiler (about 14 MB), so give it a moment.</p>
+            <div class="tabs" role="tablist">
+              <button class="tab" role="tab" aria-selected="true" data-tab="app" id="tab-app">main · app.ts</button>
+              <button class="tab" role="tab" aria-selected="false" data-tab="c" id="tab-c">footer · stats.c</button>
+              <button class="tab" role="tab" aria-selected="false" data-tab="sdk" id="tab-sdk">sdk · llp.ts</button>
+            </div>
+            <textarea class="code" id="code" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Layer source"></textarea>
+            <div class="row-actions">
+              <button class="btn" id="compile">Compile &amp; stream</button>
+              <button class="btn ghost" id="reset-src">Reset source</button>
+              <span class="status" id="compile-status">The C layer is read-only here; browsers have no C compiler.</span>
+            </div>
+            <pre class="err" id="compile-err" hidden></pre>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>Devices</h2>
+        <div id="trust-box"></div>
+        <div class="devices" id="devices"><div class="d"><span>This device</span><span class="mono" id="me-ver">—</span></div></div>
+        <p class="hint" id="net-hint">Connecting the stream…</p>
+      </section>
+
+      <section class="panel">
+        <h2>What happens on every push</h2>
+        <div class="flow">
+          <div><b>1 · Verify</b>Signature from a trusted publisher; version newer than the running one.</div>
+          <div><b>2 · Fetch</b>Only layers whose hash this host doesn't hold; each hash checked.</div>
+          <div><b>3 · Rehearse</b>Run migration and one render on a shadow copy of state.</div>
+          <div><b>4 · Swap</b>Commit atomically; keep the old layer for instant revert.</div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+// Live Layer Protocol (LLP) v0 — host core.
+// Runs unchanged in browsers and in Node: only WebAssembly, WebCrypto, TextEncoder/Decoder.
+
+const te = new TextEncoder();
+const td = new TextDecoder();
+
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+async function sha256(bytes) { return hex(await crypto.subtle.digest("SHA-256", bytes)); }
+
+// Canonical JSON: sorted keys, no whitespace — what gets signed.
+function canonical(v) {
+  if (Array.isArray(v)) return "[" + v.map(canonical).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonical(v[k])).join(",") + "}";
+  return JSON.stringify(v);
+}
+const b64 = {
+  enc: (bytes) => { let s = ""; const u = new Uint8Array(bytes); for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); },
+  dec: (str) => { const s = atob(str); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; },
+};
+
+const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
+const SIG = { name: "ECDSA", hash: "SHA-256" };
+async function generatePublisherKey() {
+  const kp = await crypto.subtle.generateKey(ECDSA, true, ["sign", "verify"]);
+  return { privateKey: kp.privateKey, publicJwk: await crypto.subtle.exportKey("jwk", kp.publicKey) };
+}
+async function signManifest(manifest, privateKey) {
+  const sig = await crypto.subtle.sign(SIG, privateKey, te.encode(canonical(manifest)));
+  return b64.enc(sig);
+}
+async function verifyManifest(manifest, sig, jwk) {
+  const key = await crypto.subtle.importKey("jwk", jwk, ECDSA, false, ["verify"]);
+  return crypto.subtle.verify(SIG, key, b64.dec(sig), te.encode(canonical(manifest)));
+}
+
+class LayerError extends Error {}
+
+class LiveHost {
+  constructor({ trustedKeys = [], capabilities = {}, onRender = () => {}, onLog = () => {}, maxPrev = 5 } = {}) {
+    this.trustedKeys = trustedKeys;      // publisher public keys (JWK)
+    this.capabilities = capabilities;    // name -> async (arg, ctx) => string result
+    this.onRender = onRender;
+    this.onLog = onLog;
+    this.maxPrev = maxPrev;
+    this.kv = new Map();                 // host-owned state: survives every swap
+    this.blobs = new Map();              // content-addressed store: hash -> bytes
+    this.slots = new Map();              // slot -> { hash, exports, prev: [] }
+    this.version = 0;
+    this.app = null;
+    this.ctx = null;                     // per-call context: { kv, tree stack, event }
+    this.history = [];
+  }
+
+  log(kind, msg, extra = {}) { const e = { t: Date.now(), kind, msg, ...extra }; this.history.push(e); this.onLog(e); }
+
+  // ---------- the guest ABI ----------
+  imports(slot) {
+    const host = this;
+    let mem = null;
+    const bytes = (p, l) => new Uint8Array(mem.buffer, p, l);
+    const str = (p, l) => td.decode(bytes(p, l));
+    const put = (s, p, cap) => { const b = te.encode(s); bytes(p, Math.min(b.length, cap)).set(b.subarray(0, cap)); return b.length; };
+    const c = () => { if (!host.ctx) throw new LayerError("host call outside a host-initiated call"); return host.ctx; };
+    const llp = {
+      ui_begin: (p, l) => { const n = { k: str(p, l), a: {}, c: [] }; const s = c().stack; s[s.length - 1].c.push(n); s.push(n); },
+      ui_attr: (kp, kl, vp, vl) => { const s = c().stack; s[s.length - 1].a[str(kp, kl)] = str(vp, vl); },
+      ui_text: (p, l) => { const s = c().stack; s[s.length - 1].c.push({ k: "text", t: str(p, l) }); },
+      ui_end: () => { const s = c().stack; if (s.length <= 1) throw new LayerError("ui_end without ui_begin"); s.pop(); },
+      kv_get_n: (kp, kl, def) => { const v = c().kv.get(str(kp, kl)); return typeof v === "number" ? v : def; },
+      kv_set_n: (kp, kl, v) => { c().kv.set(str(kp, kl), v); },
+      kv_get_s: (kp, kl, bp, cap) => { const v = c().kv.get(str(kp, kl)); return put(v == null ? "" : String(v), bp, cap); },
+      kv_set_s: (kp, kl, vp, vl) => { c().kv.set(str(kp, kl), str(vp, vl)); },
+      ev_id: (bp, cap) => put(c().event?.id ?? "", bp, cap),
+      ev_val: (bp, cap) => put(c().event?.value ?? "", bp, cap),
+      cap: (np, nl, ap, al) => { const x = c(); x.effects.push({ name: str(np, nl), arg: str(ap, al) }); return x.effects.length; },
+      log: (p, l) => host.log("layer", str(p, l), { slot }),
+      now: () => Date.now(),
+    };
+    const env = { abort: () => { throw new LayerError("layer aborted"); }, seed: () => Math.random() * 2 ** 32 };
+    return { imports: { llp, env }, bind: (m) => { mem = m; } };
+  }
+
+  async instantiate(slot, bytes) {
+    const { imports, bind } = this.imports(slot);
+    const { instance } = await WebAssembly.instantiate(bytes, imports);
+    const ex = instance.exports;
+    if (!(ex.memory instanceof WebAssembly.Memory)) throw new LayerError("layer must export memory");
+    if (typeof ex.llp_view !== "function") throw new LayerError("layer must export llp_view");
+    bind(ex.memory);
+    return ex;
+  }
+
+  // Run one guest entry point inside a context; collects UI tree + effects.
+  call(exports, fn, kv, event, ...args) {
+    const root = { k: "root", a: {}, c: [] };
+    this.ctx = { kv, stack: [root], event, effects: [] };
+    try {
+      exports[fn]?.(...args);
+      if (this.ctx.stack.length !== 1) throw new LayerError(`unbalanced UI in ${fn}`);
+      return { tree: root.c.length === 1 ? root.c[0] : root, effects: this.ctx.effects };
+    } finally { this.ctx = null; }
+  }
+
+  // ---------- applying a streamed manifest ----------
+  // manifest = { app, version, layers: { slotName: sha256 }, order: [slot...] }
+  async apply(manifest, sig, fetchBlob) {
+    const t0 = performance.now();
+    if (this.trustedKeys.length) {
+      let ok = false;
+      for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k)) { ok = true; break; }
+      if (!ok) return this.reject(manifest, "signature not trusted");
+    }
+    if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app");
+    if (manifest.version <= this.version) return this.reject(manifest, `stale version ${manifest.version} ≤ ${this.version}`);
+
+    // Fetch only what we don't have (content addressing).
+    const wanted = Object.values(manifest.layers).filter((h) => !this.blobs.has(h));
+    for (const h of wanted) {
+      const bytes = await fetchBlob(h);
+      if ((await sha256(bytes)) !== h) return this.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`);
+      this.blobs.set(h, bytes);
+    }
+
+    // Stage every changed slot in a shadow copy of state; commit all or nothing.
+    const shadowKv = new Map(this.kv);
+    const staged = [];
+    try {
+      for (const [slot, hash] of Object.entries(manifest.layers)) {
+        if (this.slots.get(slot)?.hash === hash) continue;
+        const ex = await this.instantiate(slot, this.blobs.get(hash));
+        const want = ex.llp_schema ? ex.llp_schema() : 0;
+        const have = shadowKv.get(`__schema.${slot}`) ?? want;
+        if (want !== have) {
+          if (!ex.llp_migrate) throw new LayerError(`${slot}: schema ${have}→${want} but no llp_migrate`);
+          this.call(ex, "llp_migrate", shadowKv, null, have);
+        }
+        shadowKv.set(`__schema.${slot}`, want);
+        this.call(ex, "llp_view", shadowKv, null); // health check: must render cleanly against real state
+        staged.push({ slot, hash, ex });
+      }
+    } catch (e) {
+      return this.reject(manifest, e.message);
+    }
+
+    // Atomic commit.
+    for (const { slot, hash, ex } of staged) {
+      const cur = this.slots.get(slot);
+      const prev = cur ? [{ hash: cur.hash, exports: cur.exports }, ...cur.prev].slice(0, this.maxPrev) : [];
+      this.slots.set(slot, { hash, exports: ex, prev });
+    }
+    for (const s of [...this.slots.keys()]) if (!(s in manifest.layers)) this.slots.delete(s);
+    this.order = manifest.order ?? Object.keys(manifest.layers);
+    this.kv = shadowKv;
+    this.app = manifest.app;
+    this.version = manifest.version;
+    const ms = +(performance.now() - t0).toFixed(1);
+    this.log("swap", `v${manifest.version} live — ${staged.length} layer(s) swapped in ${ms} ms`, { ms, version: manifest.version, swapped: staged.map((s) => s.slot) });
+    this.render();
+    return { ok: true, ms, version: manifest.version, swapped: staged.map((s) => s.slot) };
+  }
+
+  reject(manifest, reason) {
+    this.log("reject", `v${manifest.version} rejected: ${reason}`, { version: manifest.version });
+    return { ok: false, reason, version: manifest.version };
+  }
+
+  // ---------- running ----------
+  render() {
+    const out = [];
+    for (const slot of this.order ?? []) {
+      const s = this.slots.get(slot);
+      if (!s) continue;
+      try { out.push({ slot, tree: this.call(s.exports, "llp_view", this.kv, null).tree }); }
+      catch (e) { if (this.revert(slot, e)) return this.render(); out.push({ slot, error: e.message }); }
+    }
+    this.onRender(out);
+    return out;
+  }
+
+  // Events are transactions: if the layer traps, state is restored and the layer reverted.
+  async dispatch(slot, id, value = "") {
+    const s = this.slots.get(slot);
+    if (!s) return;
+    const snapshot = new Map(this.kv);
+    let effects = [];
+    try { effects = this.call(s.exports, "llp_event", this.kv, { id, value }).effects; }
+    catch (e) { this.kv = snapshot; this.revert(slot, e); return this.render(); }
+    this.render();
+    for (const fx of effects) this.runCapability(slot, fx);
+  }
+
+  async runCapability(slot, { name, arg }) {
+    const impl = this.capabilities[name];
+    if (!impl) { this.log("cap", `capability "${name}" not granted`, { slot }); return this.dispatch(slot, `cap:${name}`, "error: not granted"); }
+    try {
+      const result = await impl(arg, { slot });
+      if (result !== undefined) await this.dispatch(slot, `cap:${name}`, String(result));
+    } catch (e) { await this.dispatch(slot, `cap:${name}`, "error: " + e.message); }
+  }
+
+  revert(slot, err) {
+    const s = this.slots.get(slot);
+    if (!s || !s.prev.length) { this.log("error", `${slot}: ${err.message} (no previous version to revert to)`, { slot }); return false; }
+    const [back, ...rest] = s.prev;
+    this.slots.set(slot, { hash: back.hash, exports: back.exports, prev: rest });
+    this.log("rollback", `${slot} trapped (${err.message}) — reverted to ${back.hash.slice(0, 8)}`, { slot });
+    return true;
+  }
+
+  // Inputs bound to state write straight into the host store (no layer call needed).
+  setBound(key, value) { this.kv.set(key, value); }
+}
+
+
+const WASM = {"tasks": "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OQAzADAAMwAxADMAMgAzADMAMwA0ADMANQAzADYAMwA3ADMAOAAzADkANAAwADQAMQA0ADIANAAzADQANAA0ADUANAA2ADQANwA0ADgANAA5ADUAMAA1ADEANQAyADUAMwA1ADQANQA1ADUANgA1ADcANQA4ADUAOQA2ADAANgAxADYAMgA2ADMANgA0ADYANQA2ADYANgA3ADYAOAA2ADkANwAwADcAMQA3ADIANwAzADcANAA3ADUANwA2ADcANwA3ADgANwA5ADgAMAA4ADEAOAAyADgAMwA4ADQAOAA1ADgANgA4ADcAOAA4ADgAOQA5ADAAOQAxADkAMgA5ADMAOQA0ADkANQA5ADYAOQA3ADkAOAA5ADkAQbwSCwIcBABByBILhwgCAAAAAAQAADAAMAAwADEAMAAyADAAMwAwADQAMAA1ADAANgAwADcAMAA4ADAAOQAwAGEAMABiADAAYwAwAGQAMABlADAAZgAxADAAMQAxADEAMgAxADMAMQA0ADEANQAxADYAMQA3ADEAOAAxADkAMQBhADEAYgAxAGMAMQBkADEAZQAxAGYAMgAwADIAMQAyADIAMgAzADIANAAyADUAMgA2ADIANwAyADgAMgA5ADIAYQAyAGIAMgBjADIAZAAyAGUAMgBmADMAMAAzADEAMwAyADMAMwAzADQAMwA1ADMANgAzADcAMwA4ADMAOQAzAGEAMwBiADMAYwAzAGQAMwBlADMAZgA0ADAANAAxADQAMgA0ADMANAA0ADQANQA0ADYANAA3ADQAOAA0ADkANABhADQAYgA0AGMANABkADQAZQA0AGYANQAwADUAMQA1ADIANQAzADUANAA1ADUANQA2ADUANwA1ADgANQA5ADUAYQA1AGIANQBjADUAZAA1AGUANQBmADYAMAA2ADEANgAyADYAMwA2ADQANgA1ADYANgA2ADcANgA4ADYAOQA2AGEANgBiADYAYwA2AGQANgBlADYAZgA3ADAANwAxADcAMgA3ADMANwA0ADcANQA3ADYANwA3ADcAOAA3ADkANwBhADcAYgA3AGMANwBkADcAZQA3AGYAOAAwADgAMQA4ADIAOAAzADgANAA4ADUAOAA2ADgANwA4ADgAOAA5ADgAYQA4AGIAOABjADgAZAA4AGUAOABmADkAMAA5ADEAOQAyADkAMwA5ADQAOQA1ADkANgA5ADcAOQA4ADkAOQA5AGEAOQBiADkAYwA5AGQAOQBlADkAZgBhADAAYQAxAGEAMgBhADMAYQA0AGEANQBhADYAYQA3AGEAOABhADkAYQBhAGEAYgBhAGMAYQBkAGEAZQBhAGYAYgAwAGIAMQBiADIAYgAzAGIANABiADUAYgA2AGIANwBiADgAYgA5AGIAYQBiAGIAYgBjAGIAZABiAGUAYgBmAGMAMABjADEAYwAyAGMAMwBjADQAYwA1AGMANgBjADcAYwA4AGMAOQBjAGEAYwBiAGMAYwBjAGQAYwBlAGMAZgBkADAAZAAxAGQAMgBkADMAZAA0AGQANQBkADYAZAA3AGQAOABkADkAZABhAGQAYgBkAGMAZABkAGQAZQBkAGYAZQAwAGUAMQBlADIAZQAzAGUANABlADUAZQA2AGUANwBlADgAZQA5AGUAYQBlAGIAZQBjAGUAZABlAGUAZQBmAGYAMABmADEAZgAyAGYAMwBmADQAZgA1AGYANgBmADcAZgA4AGYAOQBmAGEAZgBiAGYAYwBmAGQAZgBlAGYAZgBB3BoLAVwAQegaC08CAAAASAAAADAAMQAyADMANAA1ADYANwA4ADkAYQBiAGMAZABlAGYAZwBoAGkAagBrAGwAbQBuAG8AcABxAHIAcwB0AHUAdgB3AHgAeQB6AEG8GwsBHABByBsLAQIAQdwbCwEcAEHoGwsRAgAAAAoAAAAuAGQAbwBuAGUAQfwbCwEcAEGIHAsNAgAAAAYAAABjAG8AbABBnBwLARwAQagcCxECAAAACgAAAFQAYQBzAGsAcwBBvBwLASwAQcgcCxUCAAAADgAAAGgAZQBhAGQAaQBuAGcAQewcCwEcAEH4HAsPAgAAAAgAAAAgAG8AZgAgAEGMHQsBHABBmB0LEQIAAAAKAAAAIABkAG8AbgBlAEGsHQsBHABBuB0LEQIAAAAKAAAAbABhAGIAZQBsAEHMHQsBHABB2B0LDQIAAAAGAAAAcgBvAHcAQewdCwEcAEH4HQsRAgAAAAoAAABkAHIAYQBmAHQAQYweCwEsAEGYHgseAgAAABYAAABBAGQAZAAgAGEAIAB0AGEAcwBrACYgAEG8HgsBHABByB4LDQIAAAAGAAAAYQBkAGQAQdweCwEcAEHoHgsRAgAAAAoAAABpAG4AcAB1AHQAQfweCwEcAEGIHwsPAgAAAAgAAABiAGkAbgBkAEGcHwsBLABBqB8LHQIAAAAWAAAAcABsAGEAYwBlAGgAbwBsAGQAZQByAEHMHwsBHABB2B8LEwIAAAAMAAAAcwB1AGIAbQBpAHQAQewfCwEcAEH4HwsNAgAAAAYAAABBAGQAZABBjCALASwAQZggCxUCAAAADgAAAHAAcgBpAG0AYQByAHkAQbwgCwEcAEHIIAsTAgAAAAwAAABiAHUAdAB0AG8AbgBB3CALARwAQeggCwsCAAAABAAAAGkAZABB/CALARwAQYghCxECAAAACgAAAHMAdAB5AGwAZQBBnCELARwAQaghCwsCAAAABAAAAHQAOgBBvCELARwAQcghCxECAAAACgAAAC4AdABlAHgAdABB3CELARwAQeghCxMCAAAADAAAAHQAbwBnAGcAbABlAEH8IQsBHABBiCILCwIAAAAEAAAAbwBuAEGcIgsBHABBqCILCQIAAAACAAAAMQBBvCILARwAQcgiCxECAAAACgAAAGMAbABlAGEAcgBB3CILASwAQegiCxsCAAAAFAAAAEMAbABlAGEAcgAgAGQAbwBuAGUAQYwjCwEcAEGYIwsTAgAAAAwAAABoAGEAcAB0AGkAYwBBrCMLARwAQbgjCwsCAAAABAAAADIAMABB0CMLDQQAAAAgAAAAIAAAACA=", "v2": "AGFzbQEAAAABTg5gAn9/AX9gAn9/AGAAAGABfwBgBH9/f38AYAF/AX9gAAF/YAR/f39/AX9gAX8BfGACf3wAYAN/f34AYAN/f38AYAN/f3wAYAN/f3wBfAKXAQsDZW52BWFib3J0AAQDbGxwBnVpX2VuZAACA2xscAd1aV90ZXh0AAEDbGxwCHVpX2JlZ2luAAEDbGxwB3VpX2F0dHIABANsbHAIa3Zfc2V0X3MABANsbHAIa3Zfc2V0X24ADANsbHAIa3ZfZ2V0X3MABwNsbHAIa3ZfZ2V0X24ADQNsbHAFZXZfaWQAAANsbHADY2FwAAcDHRwABQUDCAAJAwEDAQEDAQUAAAACCgILAgYCBgMCBQMBAAEGRA1/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUHkpAILBzwFCmxscF9zY2hlbWEAJAtsbHBfbWlncmF0ZQAlCGxscF92aWV3ACMJbGxwX2V2ZW50ACYGbWVtb3J5AgAIASEMAWIKvD0cyQEBA38jDEEIayQMAkAjDEHkJEgNACMMQgA3AwAjDCAANgIAIwwgATYCBCMMQQhrJAwjDEHkJEgNACMMQgA3AwAjDCAAIgI2AgAgAEEUaygCEEF+cSEDIwwgATYCAAJAIAFBFGsoAhBBfnEiBCADaiIARQRAIwxBCGokDEHQGyEADAELIwwgAEECEBAiADYCBCAAIAIgA/wKAAAgACADaiABIAT8CgAAIwxBCGokDAsjDEEIaiQMIAAPC0GApQJBsKUCQQFBARAAAAvEBAEFfyMMQQRrJAwCQCMMQeQkSA0AIwxBADYCAAJAAkAjC0EBaw4DAQEBAAsACyMMIAA2AgAjDEEIayQMIwxB5CRIDQAjDEIANwMAIwwgACIBNgIAIAFBFGsoAhAgAWohAwNAIAAgA0kEQCAALwEAIgRBgAFJBH8gAkEBagUgBEGAEEkEfyACQQJqBSAEQYD4A3FBgLADRiAAQQJqIANJcQRAIAAvAQJBgPgDcUGAuANGBEAgAkEEaiECIABBBGohAAwFCwsgAkEDagsLIQIgAEECaiEADAELCyMMIAJBARAQIgA2AgQjDCABNgIAIAEgAUEUaygCEEF+cWohBCAAIQIDQCABIARJBEAgAS8BACIDQYABSQR/IAIgAzoAACACQQFqBSADQYAQSQR/IAIgA0EGdkHAAXIgA0E/cUGAAXJBCHRyOwEAIAJBAmoFIANBgPADcUGAsANGBEAgA0GAuANJIAFBAmogBElxBEAgAS8BAiIFQYD4A3FBgLgDRgRAIAIgA0H/B3FBCnRBgIAEaiAFQf8HcXIiA0E/cUGAAXJBGHQgA0EGdkE/cUGAAXJBEHRyIANBDHZBP3FBgAFyQQh0ciADQRJ2QfABcnI2AgAgAkEEaiECIAFBBGohAQwGCwsLIAIgA0EMdkHgAXIgA0EGdkE/cUGAAXJBCHRyOwEAIAIgA0E/cUGAAXI6AAIgAkEDagsLIQIgAUECaiEBDAELCyMMQQhqJAwjDEEEaiQMIAAPC0GApQJBsKUCQQFBARAAAAuXAwEFfyMMQQRrJAwjDEHkJEgEQEGApQJBsKUCQQFBARAAAAsjDEEANgIAAkAgAEUEQCMMQQRqJAxBoA8hAgwBCyMMQQAgAGsgACAAQR92QQF0IgMbIgBBoI0GSQR/IABB5ABJBH8gAEEKT0EBagUgAEGQzgBPQQNqIABB6AdPagsFIABBgK3iBEkEfyAAQcCEPU9BBmoFIABBgJTr3ANPQQhqIABBgMLXL09qCwsiAUEBdCADakECEBAiAjYCACACIANqIQUDQCAAQZDOAE8EQCAAQZDOAHAhBCAAQZDOAG4hACAFIAFBBGsiAUEBdGogBEHkAG5BAnRBrA9qNQIAIARB5ABwQQJ0QawPajUCAEIghoQ3AwAMAQsLIABB5ABPBEAgBSABQQJrIgFBAXRqIABB5ABwQQJ0QawPaigCADYCACAAQeQAbiEACyAAQQpPBEAgBSABQQJrQQF0aiAAQQJ0QawPaigCADYCAAUgBSABQQFrQQF0aiAAQTBqOwEACyADBEAgAkEtOwEACyMMQQRqJAwLIAILnQIBA38gAEUEQA8LIwcgAEEUayIBKAIEQQNxRgRAIAEjBUYEQCABKAIIIgBFBEBBAEHQCUGUAUEeEAAACyAAJAULAkAgASgCBEF8cSIARQRAIAEoAghFIAFB5KQCSXFFBEBBAEHQCUGAAUESEAAACwwBCyABKAIIIgJFBEBBAEHQCUGEAUEQEAAACyAAIAI2AgggAiAAIAIoAgRBA3FyNgIECyMGIQIgASgCDCIAQQJNBH9BAQUgAEHQJCgCAEsEQEHQCkGQC0EVQRwQAAALIABBAnRB1CRqKAIAQSBxCyEDIAIoAgghACABIwdFQQIgAxsgAnI2AgQgASAANgIIIAAgASAAKAIEQQNxcjYCBCACIAE2AggjA0EBaiQDCwtjAQF8IwxBCGskDCMMQeQkSARAQYClAkGwpQJBAUEBEAAACyMMQgA3AwAjDCAANgIAQQEkCyMMIAAQDCIANgIEIwwgADYCACAAIABBFGsoAhBEAAAAAAAAAAAQCCMMQQhqJAwLwAQBBX8gAEHs////A08EQEGQCUHQCUGFAkEfEAAACyMAIwFPBEACQEGAECECA0AgAhAiayECIwJFBEAjAEEBdEGACGokAQwCCyACQQBKDQALIwAjACMBa0GACElBCnRqJAELCyMJRQRAEB0LIwkhBCAAQRBqIgJB/P///wNLBEBBkAlB4AtBzQNBHRAAAAsgBCACQQxNBH9BDAUgAkETakFwcUEEawsiBRAcIgJFBEAgBUGAAk8EfyAFQf7///8BSQR/IAVBAUEbIAVna3RqQQFrBSAFCwUgBQtBBCAEKAKgDD8AIgJBEHRBBGtHdGpB//8DakGAgHxxQRB2IQMgAiADIAIgA0obQABBAEgEQCADQABBAEgEQAALCyAEIAJBEHQ/AKxCEIYQHiAEIAUQHCICRQRAQQBB4AtB8wNBEBAAAAsLIAUgAigCAEF8cUsEQEEAQeALQfUDQQ4QAAALIAQgAhAVIAIoAgAhBiAFQQRqQQ9xBEBBAEHgC0HpAkEOEAAACyAGQXxxIAVrIgNBEE8EQCACIAUgBkECcXI2AgAgAkEEaiAFaiIFIANBBGtBAXI2AgAgBCAFEBYFIAIgBkF+cTYCACACQQRqIAIoAgBBfHFqIgMgAygCAEF9cTYCAAsgAiABNgIMIAIgADYCECMIIgEoAgghAyACIAEjB3I2AgQgAiADNgIIIAMgAiADKAIEQQNxcjYCBCABIAI2AggjACACKAIAQXxxQQRqaiQAIAJBFGoiAUEAIAD8CwAgAQtaACMMQQhrJAwjDEHkJEgEQEGApQJBsKUCQQFBARAAAAsjDEIANwMAIwwgADYCAEEBJAsjDCAAEAwiADYCBCMMIAA2AgAgACAAQRRrKAIQIAEQBiMMQQhqJAwLWAAjDEEIayQMIwxB5CRIBEBBgKUCQbClAkEBQQEQAAALIwxCADcDACMMIAA2AgBBASQLIwwgABAMIgA2AgQjDCAANgIAIAAgAEEUaygCEBADIwxBCGokDAuMAQEBfyMMQQxrJAwjDEHkJEgEQEGApQJBsKUCQQFBARAAAAsjDEIANwMAIwxBADYCCCMMIAA2AgBBASQLIwwgABAMIgA2AgQjDCABNgIAQQEkCyMMIAEQDCIBNgIIIwwgADYCACAAQRRrKAIQIQIjDCABNgIAIAAgAiABIAFBFGsoAhAQBCMMQQxqJAwLWAAjDEEIayQMIwxB5CRIBEBBgKUCQbClAkEBQQEQAAALIwxCADcDACMMIAA2AgBBASQLIwwgABAMIgA2AgQjDCAANgIAIAAgAEEUaygCEBACIwxBCGokDAuKAgEEfyABKAIAIgNBAXFFBEBBAEHgC0GMAkEOEAAACyADQXxxIgNBDEkEQEEAQeALQY4CQQ4QAAALIANBgAJJBH8gA0EEdgVBH0H8////AyADIANB/P///wNPGyIDZ2siBEEHayECIAMgBEEEa3ZBEHMLIgNBEEkgAkEXSXFFBEBBAEHgC0GcAkEOEAAACyABKAIIIQUgASgCBCIEBEAgBCAFNgIICyAFBEAgBSAENgIECyABIAAgAkEEdCADakECdGoiASgCYEYEQCABIAU2AmAgBUUEQCAAIAJBAnRqIgEoAgRBfiADd3EhAyABIAM2AgQgA0UEQCAAIAAoAgBBfiACd3E2AgALCwsLwwMBBX8gAUUEQEEAQeALQckBQQ4QAAALIAEoAgAiA0EBcUUEQEEAQeALQcsBQQ4QAAALIAFBBGogASgCAEF8cWoiBCgCACICQQFxBEAgACAEEBUgASADQQRqIAJBfHFqIgM2AgAgAUEEaiABKAIAQXxxaiIEKAIAIQILIANBAnEEQCABQQRrKAIAIgEoAgAiBkEBcUUEQEEAQeALQd0BQRAQAAALIAAgARAVIAEgBkEEaiADQXxxaiIDNgIACyAEIAJBAnI2AgAgA0F8cSICQQxJBEBBAEHgC0HpAUEOEAAACyAEIAFBBGogAmpHBEBBAEHgC0HqAUEOEAAACyAEQQRrIAE2AgAgAkGAAkkEfyACQQR2BUEfQfz///8DIAIgAkH8////A08bIgJnayIDQQdrIQUgAiADQQRrdkEQcwsiAkEQSSAFQRdJcUUEQEEAQeALQfsBQQ4QAAALIAAgBUEEdCACakECdGooAmAhAyABQQA2AgQgASADNgIIIAMEQCADIAE2AgQLIAAgBUEEdCACakECdGogATYCYCAAIAAoAgBBASAFdHI2AgAgACAFQQJ0aiIAIAAoAgRBASACdHI2AgQLLAACQAJAAkACQAJAIABBCGsoAgAOBAABAgMECw8LDwsPCyAAKAIAEA4PCwALjAEBAX8jDEEMayQMIwxB5CRIBEBBgKUCQbClAkEBQQEQAAALIwxCADcDACMMQQA2AggjDCAANgIAQQEkCyMMIAAQDCIANgIEIwwgATYCAEEBJAsjDCABEAwiATYCCCMMIAA2AgAgAEEUaygCECECIwwgATYCACAAIAIgASABQRRrKAIQEAUjDEEMaiQMC3IAIwxBCGskDCMMQeQkSARAQYClAkGwpQJBAUEBEAAACyMMQgA3AwAjDCAANgIAQQEkCyMMIAAQDCIANgIEIwwgADYCACAAIABBFGsoAhAjCkGAwAAQByEAIwpBgMAAIAAgAEGAwABOGxAbIwxBCGokDAudAgEDfyMMQQhrJAwjDEHkJEgEQEGApQJBsKUCQQFBARAAAAsjDEIANwMAIAAgAUYEQCMMQQhqJAxBAQ8LAkAgAUUgAEVyDQAjDCAANgIAIABBFGsoAhBBAXYhAyMMIAE2AgAgAyABQRRrKAIQQQF2Rw0AIwwgADYCACMMIAE2AgQCfyAAIQIgAyIAQQRPBH8gAkEHcSABQQdxcgVBAQtFBEADQCACKQMAIAEpAwBRBEAgAkEIaiECIAFBCGohASAAQQRrIgBBBE8NAQsLCwNAIAAiA0EBayEAIAMEQCABLwEAIgMgAi8BACIERwRAIAQgA2sMAwsgAkECaiECIAFBAmohAQwBCwtBAAsjDEEIaiQMRQ8LIwxBCGokDEEAC8ADAQV/IwxBBGskDCMMQeQkSARAQYClAkGwpQJBAUEBEAAACyMMQQA2AgAgACICIAFqIQQgAiAESwRAQQBBkA1BggZBBxAAAAsjDCABQQF0QQIQECIANgIAIAAhAQNAIAIgBEkEQAJAIAItAAAhBSACQQFqIQIgBUGAAXEEQCACIARGDQEgAi0AAEE/cSEGIAJBAWohAiAFQeABcUHAAUYEQCABIAVBH3FBBnQgBnI7AQAFIAIgBEYNAiACLQAAQT9xIQMgAkEBaiECIAVB8AFxQeABRgRAIAVBD3FBDHQgBkEGdHIgA3IhAwUgAiAERg0DIAItAABBP3EgBUEHcUESdCAGQQx0ciADQQZ0cnIhAyACQQFqIQILIANBgIAESQRAIAEgAzsBAAUgASADQYCABGsiA0EKdkGAsANyIANB/wdxQYC4A3JBEHRyNgIAIAFBAmohAQsLBSABIAU7AQALIAFBAmohAQwCCwsLAkAgASAAayICIABBFGsiAygCAEF8cUEQa00EQCADIAI2AhAMAQsgAiADKAIMEBAiASAAIAIgAygCECIAIAAgAksb/AoAACABIQALIwxBBGokDCAAC9oBAQF/IAFBgAJJBEAgAUEEdiEBBSABQf7///8BSQRAIAFBAUEbIAFna3RqQQFrIQELIAFBHyABZ2siAkEEa3ZBEHMhASACQQdrIQILIAFBEEkgAkEXSXFFBEBBAEHgC0HOAkEOEAAACyAAIAJBAnRqKAIEQX8gAXRxIgEEfyAAIAFoIAJBBHRqQQJ0aigCYAUgACgCAEF/IAJBAWp0cSIBBH8gACABaCIBQQJ0aigCBCICRQRAQQBB4AtB2wJBEhAAAAsgACACaCABQQR0akECdGooAmAFQQALCwuXAQECfz8AIgFBAEwEf0EBIAFrQABBAEgFQQALBEAAC0HwpAJBADYCAEGQsQJBADYCAANAIABBF0kEQCAAQQJ0QfCkAmpBADYCBEEAIQEDQCABQRBJBEAgAEEEdCABakECdEHwpAJqQQA2AmAgAUEBaiEBDAELCyAAQQFqIQAMAQsLQfCkAkGUsQI/AKxCEIYQHkHwpAIkCQvOAQEDfyACIAGtVARAQQBB4AtB/gJBDhAAAAsgAUETakFwcUEEayEBIAAoAqAMIgMEQCADQQRqIAFLBEBBAEHgC0GFA0EQEAAACyADIAFBEGsiBUYEQCADKAIAIQQgBSEBCwUgAEGkDGogAUsEQEEAQeALQZIDQQUQAAALCyACp0FwcSABayIDQRRJBEAPCyABIARBAnEgA0EIayIDQQFycjYCACABQQA2AgQgAUEANgIIIAFBBGogA2oiA0ECNgIAIAAgAzYCoAwgACABEBYLcgECf0HQChAOQaAIEA5BkAkQDkHQDBAOQdASEA5B8BoQDiMKIgAEQCAAEA4LIwQiASgCBEF8cSEAA0AgACABRwRAIAAoAgRBA3FBA0cEQEEAQdAJQaABQRAQAAALIABBFGoQFyAAKAIEQXxxIQAMAQsLC3IAIwxBBGskDCMMQeQkSARAQYClAkGwpQJBAUEBEAAACyMMQQA2AgBB0CEQEiMMIAA2AgBB8CEgABATIwwgAjYCACACQRRrKAIQQQF2BEAjDCACNgIAQZAiIAIQEwsjDCABNgIAIAEQFBABIwxBBGokDAuYAQEBfz8AQRB0QeSkAmtBAXYkAUGECkGACjYCAEGICkGACjYCAEGACiQEQaQKQaAKNgIAQagKQaAKNgIAQaAKJAZBtAtBsAs2AgBBuAtBsAs2AgBBsAskCCMMQQRrJAwjDEHkJEgEQEGApQJBsKUCQQFBARAAAAsjDEEANgIAIwxBgMAAQQEQECIANgIAIwxBBGokDCAAJAoL4QMBA38CQAJAAkACQCMCDgMAAQIDC0EBJAJBACQDEB8jBiQFIwMPCyMHRSEBIwUoAgRBfHEhAANAIAAjBkcEQCAAJAUgASAAKAIEIgJBA3FHBEAgACACQXxxIAFyNgIEQQAkAyAAQRRqEBcjAw8LIAAoAgRBfHEhAAwBCwtBACQDEB8jBiMFKAIEQXxxRgRAIwwhAANAIABB5KQCSQRAIAAoAgAQDiAAQQRqIQAMAQsLIwUoAgRBfHEhAANAIAAjBkcEQCABIAAoAgQiAkEDcUcEQCAAIAJBfHEgAXI2AgQgAEEUahAXCyAAKAIEQXxxIQAMAQsLIwghACMGJAggACQGIAEkByAAKAIEQXxxJAVBAiQCCyMDDwsjBSIAIwZHBEAgACgCBCIBQXxxJAUjB0UgAUEDcUcEQEEAQdAJQeUBQRQQAAALIABB5KQCSQRAIABBADYCBCAAQQA2AggFIwAgACgCAEF8cUEEamskACAAQQRqIgBB5KQCTwRAIwlFBEAQHQsjCSAAQQRrIQIgAEEPcUEBIAAbBH9BAQUgAigCAEEBcQsEQEEAQeALQbIEQQMQAAALIAIgAigCAEEBcjYCACACEBYLC0EKDwsjBiMGNgIEIwYjBjYCCEEAJAILQQALwAUBBn8jDEEYayQMAkAjDEHkJEgNACMMQQBBGPwLAEGgDBAP/AIhAwNAIAAgA0gEQCAAEA0hBCMMIAQ2AghBwA0gBBALIQQjDCAENgIEIARBwBwQCyEEIwwgBDYCACABQQFqIAEgBBAPRAAAAAAAAAAAZBshASAAQQFqIQAMAQsLQeAcEBIjDEEEayQMIwxB5CRIDQAjDEEANgIAQdAdEBIjDEGAHTYCAEGAHRAUEAEjDEEEaiQMIAEQDSEAIwwgADYCECAAQYAeEAshACMMIAA2AgggAxANIQQjDCAENgIMIAAgBBALIQAjDCAANgIEIABBoB4QCyEAIwwgADYCACMMQQRrJAwjDEHkJEgNACMMQQA2AgBBwB4QEiMMIAA2AgAgABAUEAEjDEEEaiQMQeAeEBIjDEEEayQMIwxB5CRIDQAjDEEANgIAQfAfEBIjDEGAHzYCAEGQIEGAHxATIwxBoB82AgBBsCBBoB8QEyMMQdAfNgIAQcwfKAIAQQF2BEAjDEHQHzYCAEHgIEHQHxATCxABIwxBBGokDEHQH0GAIUGgIRAgEAEDQCACIANIBEAjDCACEA0hBCMMIAQ2AgBBwA0gBBALIgA2AhQgAhANIQQjDCAENgIIQbAiIAQQCyEEIwwgBDYCACMMIAA2AgwgAEHAHBALIQUjDCAFNgIIIAUQD0QAAAAAAAAAAGQhBSMMIAA2AgwgAEHQIhALIQAjDCAANgIIIAAQGSEAIwwgADYCBCMMQQRrJAwjDEHkJEgNAiMMQQA2AgBB8CIQEiMMIAQ2AgBB8CEgBBATIwxBsCNBoA8gBRsiBDYCAEGQIyAEEBMjDCAANgIAIAAQFBABIwxBBGokDCACQQFqIQIMAQsLIAFBAEoEQEHQI0HwI0HQGxAgCxABIwxBGGokDA8LQYClAkGwpQJBAUEBEAAACwQAQQILlwEBA38jDEEMayQMIwxB5CRIBEBBgKUCQbClAkEBQQEQAAALIwxCADcDACMMQQA2AghBoAwQD/wCIQIDQCABIAJIBEAgARANIQMjDCADNgIIQcANIAMQCyEDIwwgAzYCBCADQfAbEAshAyMMIAM2AgAgA0QAAAAAAADwPxARIAFBAWohAQwBCwtBkBwgALcQESMMQQxqJAwLxwkCCH8BfCMMQSRrJAwCQCMMQeQkSA0AIwxBAEEk/AsAIwwjCkGAwAAQCSECIwpBgMAAIAIgAkGAwABOGxAbIgM2AgAjDCADNgIEIANB0B8QGgRAIwxBgB8QGSIANgIIIwwgADYCBCAAQRRrKAIQQQF2RQRAIwxBJGokDA8LQaAMEA/8AiIBEA0hAiMMIAI2AhRBwA0gAhALIQIjDCACNgIQIAJB0CIQCyECIwwgAjYCBCMMIAA2AgwgAiAAEBggARANIQAjDCAANgIQQcANIAAQCyEAIwwgADYCDCAAQcAcEAshACMMIAA2AgQgAEQAAAAAAAAAABARQaAMIAFBAWq3EBFBgB9B0BsQGAUjDCADNgIEIwxBCGskDCMMQeQkSA0BIwxCADcDACMMIAM2AgAgA0EUaygCEEEBdiEBIwxBsCI2AgACQCABQawiKAIAQQF2IgFIBEAjDEEIaiQMQQAhAQwBCyMMIAM2AgAjDEGwIjYCBAJ/IAMhAkGwIiEFQQEgA0EHcSABQQRJG0UEQANAIAIpAwAgBSkDAFEEQCACQQhqIQIgBUEIaiEFIAFBBGsiAUEETw0BCwsLA0AgASIEQQFrIQEgBARAIAUvAQAiBCACLwEAIgdHBEAgByAEawwDCyACQQJqIQIgBUECaiEFDAELC0EAC0UhASMMQQhqJAwLIAEEQCMMIwwgAzYCDEEBJAsjDEEEayQMIwxB5CRIDQIjDEEANgIAIwwgAzYCACMMQQhrJAwjDEHkJEgNAiMMQgA3AwAjDCADNgIAAkAgA0EUaygCEEEBdkECa0EBdCICQQBMBEAjDEEIaiQMQdAbIQEMAQsjDCACQQIQECIBNgIEIAEgA0EEaiAC/AoAACMMQQhqJAwLIwxBBGokDCMMIAE2AgRBwA0gARALIgA2AhgjDCAANgIMIABBwBwQCyEBIwwgATYCBEQAAAAAAAAAAEQAAAAAAADwPyABEA9EAAAAAAAAAABkGyEIIwwgADYCDCAAQcAcEAshACMMIAA2AgQgACAIEBEgCEQAAAAAAAAAAGQEQCMMQQxrJAwjDEHkJEgNAyMMQgA3AwAjDEEANgIIIwxBoCQ2AgBBASQLIwxBoCQQDCIANgIEIwxBwCQ2AgBBASQLIwxBwCQQDCIBNgIIIwwgADYCACAAQRRrKAIQIQIjDCABNgIAIAAgAiABIAFBFGsoAhAQChojDEEMaiQMCwUjDCADNgIEIANB0CMQGgRAQaAMEA/8AiEBA0AgASAGSgRAIwwgBhANIQMjDCADNgIEQcANIAMQCyICNgIcIwwgAjYCDCACQcAcEAshAyMMIAM2AgQgAxAPRAAAAAAAAAAAYQRAIwwjDCACNgIMIAJB0CIQCyECIwwgAjYCBCACEBkiAjYCICAAEA0hAyMMIAM2AhRBwA0gAxALIQMjDCADNgIQIANB0CIQCyEDIwwgAzYCBCMMIAI2AgwgAyACEBggABANIQIjDCACNgIQQcANIAIQCyECIwwgAjYCDCACQcAcEAshAiMMIAI2AgQgAkQAAAAAAAAAABARIABBAWohAAsgBkEBaiEGDAELC0GgDCAAtxARCwsLIwxBJGokDA8LQYClAkGwpQJBAUEBEAAACwvdGWIAQYwICwEsAEGYCAsjAgAAABwAAABJAG4AdgBhAGwAaQBkACAAbABlAG4AZwB0AGgAQbwICwE8AEHICAstAgAAACYAAAB+AGwAaQBiAC8AYQByAHIAYQB5AGIAdQBmAGYAZQByAC4AdABzAEH8CAsBPABBiAkLLwIAAAAoAAAAQQBsAGwAbwBjAGEAdABpAG8AbgAgAHQAbwBvACAAbABhAHIAZwBlAEG8CQsBPABByAkLJwIAAAAgAAAAfgBsAGkAYgAvAHIAdAAvAGkAdABjAG0AcwAuAHQAcwBBvAoLATwAQcgKCysCAAAAJAAAAEkAbgBkAGUAeAAgAG8AdQB0ACAAbwBmACAAcgBhAG4AZwBlAEH8CgsBLABBiAsLGwIAAAAUAAAAfgBsAGkAYgAvAHIAdAAuAHQAcwBBzAsLATwAQdgLCyUCAAAAHgAAAH4AbABpAGIALwByAHQALwB0AGwAcwBmAC4AdABzAEGMDAsBLABBmAwLFQIAAAAOAAAAdABhAHMAawBzAC4AbgBBvAwLATwAQcgMCysCAAAAJAAAAFUAbgBwAGEAaQByAGUAZAAgAHMAdQByAHIAbwBnAGEAdABlAEH8DAsBLABBiA0LIwIAAAAcAAAAfgBsAGkAYgAvAHMAdAByAGkAbgBnAC4AdABzAEGsDQsBHABBuA0LEwIAAAAMAAAAdABhAHMAawBzAC4AQcwNCwF8AEHYDQtrAgAAAGQAAAB0AG8AUwB0AHIAaQBuAGcAKAApACAAcgBhAGQAaQB4ACAAYQByAGcAdQBtAGUAbgB0ACAAbQB1AHMAdAAgAGIAZQAgAGIAZQB0AHcAZQBlAG4AIAAyACAAYQBuAGQAIAAzADYAQcwOCwE8AEHYDgstAgAAACYAAAB+AGwAaQBiAC8AdQB0AGkAbAAvAG4AdQBtAGIAZQByAC4AdABzAEGMDwsBHABBmA8LCQIAAAACAAAAMABBrA8LjwMwADAAMAAxADAAMgAwADMAMAA0ADAANQAwADYAMAA3ADAAOAAwADkAMQAwADEAMQAxADIAMQAzADEANAAxADUAMQA2ADEANwAxADgAMQA5ADIAMAAyADEAMgAyADIAMwAyADQAMgA1ADIANgAyADcAMgA4ADIAOQAzADAAMwAxADMAMgAzADMAMwA0ADMANQAzADYAMwA3ADMAOAAzADkANAAwADQAMQA0ADIANAAzADQANAA0ADUANAA2ADQANwA0ADgANAA5ADUAMAA1ADEANQAyADUAMwA1ADQANQA1ADUANgA1ADcANQA4ADUAOQA2ADAANgAxADYAMgA2ADMANgA0ADYANQA2ADYANgA3ADYAOAA2ADkANwAwADcAMQA3ADIANwAzADcANAA3ADUANwA2ADcANwA3ADgANwA5ADgAMAA4ADEAOAAyADgAMwA4ADQAOAA1ADgANgA4ADcAOAA4ADgAOQA5ADAAOQAxADkAMgA5ADMAOQA0ADkANQA5ADYAOQA3ADkAOAA5ADkAQbwSCwIcBABByBILhwgCAAAAAAQAADAAMAAwADEAMAAyADAAMwAwADQAMAA1ADAANgAwADcAMAA4ADAAOQAwAGEAMABiADAAYwAwAGQAMABlADAAZgAxADAAMQAxADEAMgAxADMAMQA0ADEANQAxADYAMQA3ADEAOAAxADkAMQBhADEAYgAxAGMAMQBkADEAZQAxAGYAMgAwADIAMQAyADIAMgAzADIANAAyADUAMgA2ADIANwAyADgAMgA5ADIAYQAyAGIAMgBjADIAZAAyAGUAMgBmADMAMAAzADEAMwAyADMAMwAzADQAMwA1ADMANgAzADcAMwA4ADMAOQAzAGEAMwBiADMAYwAzAGQAMwBlADMAZgA0ADAANAAxADQAMgA0ADMANAA0ADQANQA0ADYANAA3ADQAOAA0ADkANABhADQAYgA0AGMANABkADQAZQA0AGYANQAwADUAMQA1ADIANQAzADUANAA1ADUANQA2ADUANwA1ADgANQA5ADUAYQA1AGIANQBjADUAZAA1AGUANQBmADYAMAA2ADEANgAyADYAMwA2ADQANgA1ADYANgA2ADcANgA4ADYAOQA2AGEANgBiADYAYwA2AGQANgBlADYAZgA3ADAANwAxADcAMgA3ADMANwA0ADcANQA3ADYANwA3ADcAOAA3ADkANwBhADcAYgA3AGMANwBkADcAZQA3AGYAOAAwADgAMQA4ADIAOAAzADgANAA4ADUAOAA2ADgANwA4ADgAOAA5ADgAYQA4AGIAOABjADgAZAA4AGUAOABmADkAMAA5ADEAOQAyADkAMwA5ADQAOQA1ADkANgA5ADcAOQA4ADkAOQA5AGEAOQBiADkAYwA5AGQAOQBlADkAZgBhADAAYQAxAGEAMgBhADMAYQA0AGEANQBhADYAYQA3AGEAOABhADkAYQBhAGEAYgBhAGMAYQBkAGEAZQBhAGYAYgAwAGIAMQBiADIAYgAzAGIANABiADUAYgA2AGIANwBiADgAYgA5AGIAYQBiAGIAYgBjAGIAZABiAGUAYgBmAGMAMABjADEAYwAyAGMAMwBjADQAYwA1AGMANgBjADcAYwA4AGMAOQBjAGEAYwBiAGMAYwBjAGQAYwBlAGMAZgBkADAAZAAxAGQAMgBkADMAZAA0AGQANQBkADYAZAA3AGQAOABkADkAZABhAGQAYgBkAGMAZABkAGQAZQBkAGYAZQAwAGUAMQBlADIAZQAzAGUANABlADUAZQA2AGUANwBlADgAZQA5AGUAYQBlAGIAZQBjAGUAZABlAGUAZQBmAGYAMABmADEAZgAyAGYAMwBmADQAZgA1AGYANgBmADcAZgA4AGYAOQBmAGEAZgBiAGYAYwBmAGQAZgBlAGYAZgBB3BoLAVwAQegaC08CAAAASAAAADAAMQAyADMANAA1ADYANwA4ADkAYQBiAGMAZABlAGYAZwBoAGkAagBrAGwAbQBuAG8AcABxAHIAcwB0AHUAdgB3AHgAeQB6AEG8GwsBHABByBsLAQIAQdwbCwEcAEHoGwsPAgAAAAgAAAAuAHAAcgBpAEH8GwsBLABBiBwLIQIAAAAaAAAAbQBpAGcAcgBhAHQAZQBkAC4AZgByAG8AbQBBrBwLARwAQbgcCxECAAAACgAAAC4AZABvAG4AZQBBzBwLARwAQdgcCw0CAAAABgAAAGMAbwBsAEHsHAsBTABB+BwLNwIAAAAwAAAAVABhAHMAawBzACAAdgAyACAAFCAgAHMAdAByAGUAYQBtAGUAZAAgAGwAaQB2AGUAQbwdCwEsAEHIHQsVAgAAAA4AAABoAGUAYQBkAGkAbgBnAEHsHQsBHABB+B0LDwIAAAAIAAAAIABvAGYAIABBjB4LARwAQZgeCxECAAAACgAAACAAZABvAG4AZQBBrB4LARwAQbgeCxECAAAACgAAAGwAYQBiAGUAbABBzB4LARwAQdgeCw0CAAAABgAAAHIAbwB3AEHsHgsBHABB+B4LEQIAAAAKAAAAZAByAGEAZgB0AEGMHwsBLABBmB8LHgIAAAAWAAAAQQBkAGQAIABhACAAdABhAHMAawAmIABBvB8LARwAQcgfCw0CAAAABgAAAGEAZABkAEHcHwsBHABB6B8LEQIAAAAKAAAAaQBuAHAAdQB0AEH8HwsBHABBiCALDwIAAAAIAAAAYgBpAG4AZABBnCALASwAQaggCx0CAAAAFgAAAHAAbABhAGMAZQBoAG8AbABkAGUAcgBBzCALARwAQdggCxMCAAAADAAAAHMAdQBiAG0AaQB0AEHsIAsBHABB+CALDQIAAAAGAAAAQQBkAGQAQYwhCwEsAEGYIQsVAgAAAA4AAABwAHIAaQBtAGEAcgB5AEG8IQsBHABByCELEwIAAAAMAAAAYgB1AHQAdABvAG4AQdwhCwEcAEHoIQsLAgAAAAQAAABpAGQAQfwhCwEcAEGIIgsRAgAAAAoAAABzAHQAeQBsAGUAQZwiCwEcAEGoIgsLAgAAAAQAAAB0ADoAQbwiCwEcAEHIIgsRAgAAAAoAAAAuAHQAZQB4AHQAQdwiCwEcAEHoIgsTAgAAAAwAAAB0AG8AZwBnAGwAZQBB/CILARwAQYgjCwsCAAAABAAAAG8AbgBBnCMLARwAQagjCwkCAAAAAgAAADEAQbwjCwEcAEHIIwsRAgAAAAoAAABjAGwAZQBhAHIAQdwjCwEsAEHoIwsbAgAAABQAAABDAGwAZQBhAHIAIABkAG8AbgBlAEGMJAsBHABBmCQLEwIAAAAMAAAAaABhAHAAdABpAGMAQawkCwEcAEG4JAsLAgAAAAQAAAAyADAAQdAkCw0EAAAAIAAAACAAAAAg", "broken": "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IQYMAQsLQaAMIAC3EBMLCwsjDEEkaiQMDwtBgKQCQbCkAkEBQQEQAAALC+8YXgBBjAgLASwAQZgICyMCAAAAHAAAAEkAbgB2AGEAbABpAGQAIABsAGUAbgBnAHQAaABBvAgLATwAQcgICy0CAAAAJgAAAH4AbABpAGIALwBhAHIAcgBhAHkAYgB1AGYAZgBlAHIALgB0AHMAQfwICwE8AEGICQsvAgAAACgAAABBAGwAbABvAGMAYQB0AGkAbwBuACAAdABvAG8AIABsAGEAcgBnAGUAQbwJCwE8AEHICQsnAgAAACAAAAB+AGwAaQBiAC8AcgB0AC8AaQB0AGMAbQBzAC4AdABzAEG8CgsBPABByAoLKwIAAAAkAAAASQBuAGQAZQB4ACAAbwB1AHQAIABvAGYAIAByAGEAbgBnAGUAQfwKCwEsAEGICwsbAgAAABQAAAB+AGwAaQBiAC8AcgB0AC4AdABzAEHMCwsBPABB2AsLJQIAAAAeAAAAfgBsAGkAYgAvAHIAdAAvAHQAbABzAGYALgB0AHMAQYwMCwEsAEGYDAsVAgAAAA4AAAB0AGEAcwBrAHMALgBuAEG8DAsBPABByAwLKwIAAAAkAAAAVQBuAHAAYQBpAHIAZQBkACAAcwB1AHIAcgBvAGcAYQB0AGUAQfwMCwEsAEGIDQsjAgAAABwAAAB+AGwAaQBiAC8AcwB0AHIAaQBuAGcALgB0AHMAQawNCwEcAEG4DQsTAgAAAAwAAAB0AGEAcwBrAHMALgBBzA0LAXwAQdgNC2sCAAAAZAAAAHQAbwBTAHQAcgBpAG4AZwAoACkAIAByAGEAZABpAHgAIABhAHIAZwB1AG0AZQBuAHQAIABtAHUAcwB0ACAAYgBlACAAYgBlAHQAdwBlAGUAbgAgADIAIABhAG4AZAAgADMANgBBzA4LATwAQdgOCy0CAAAAJgAAAH4AbABpAGIALwB1AHQAaQBsAC8AbgB1AG0AYgBlAHIALgB0AHMAQYwPCwEcAEGYDwsJAgAAAAIAAAAwAEGsDwuPAzAAMAAwADEAMAAyADAAMwAwADQAMAA1ADAANgAwADcAMAA4ADAAOQAxADAAMQAxADEAMgAxADMAMQA0ADEANQAxADYAMQA3ADEAOAAxADkAMgAwADIAMQAyADIAMgAzADIANAAyADUAMgA2ADIANwAyADgAMgA5ADMAMAAzADEAMwAyADMAMwAzADQAMwA1ADMANgAzADcAMwA4ADMAOQA0ADAANAAxADQAMgA0ADMANAA0ADQANQA0ADYANAA3ADQAOAA0ADkANQAwADUAMQA1ADIANQAzADUANAA1ADUANQA2ADUANwA1ADgANQA5ADYAMAA2ADEANgAyADYAMwA2ADQANgA1ADYANgA2ADcANgA4ADYAOQA3ADAANwAxADcAMgA3ADMANwA0ADcANQA3ADYANwA3ADcAOAA3ADkAOAAwADgAMQA4ADIAOAAzADgANAA4ADUAOAA2ADgANwA4ADgAOAA5ADkAMAA5ADEAOQAyADkAMwA5ADQAOQA1ADkANgA5ADcAOQA4ADkAOQBBvBILAhwEAEHIEguHCAIAAAAABAAAMAAwADAAMQAwADIAMAAzADAANAAwADUAMAA2ADAANwAwADgAMAA5ADAAYQAwAGIAMABjADAAZAAwAGUAMABmADEAMAAxADEAMQAyADEAMwAxADQAMQA1ADEANgAxADcAMQA4ADEAOQAxAGEAMQBiADEAYwAxAGQAMQBlADEAZgAyADAAMgAxADIAMgAyADMAMgA0ADIANQAyADYAMgA3ADIAOAAyADkAMgBhADIAYgAyAGMAMgBkADIAZQAyAGYAMwAwADMAMQAzADIAMwAzADMANAAzADUAMwA2ADMANwAzADgAMwA5ADMAYQAzAGIAMwBjADMAZAAzAGUAMwBmADQAMAA0ADEANAAyADQAMwA0ADQANAA1ADQANgA0ADcANAA4ADQAOQA0AGEANABiADQAYwA0AGQANABlADQAZgA1ADAANQAxADUAMgA1ADMANQA0ADUANQA1ADYANQA3ADUAOAA1ADkANQBhADUAYgA1AGMANQBkADUAZQA1AGYANgAwADYAMQA2ADIANgAzADYANAA2ADUANgA2ADYANwA2ADgANgA5ADYAYQA2AGIANgBjADYAZAA2AGUANgBmADcAMAA3ADEANwAyADcAMwA3ADQANwA1ADcANgA3ADcANwA4ADcAOQA3AGEANwBiADcAYwA3AGQANwBlADcAZgA4ADAAOAAxADgAMgA4ADMAOAA0ADgANQA4ADYAOAA3ADgAOAA4ADkAOABhADgAYgA4AGMAOABkADgAZQA4AGYAOQAwADkAMQA5ADIAOQAzADkANAA5ADUAOQA2ADkANwA5ADgAOQA5ADkAYQA5AGIAOQBjADkAZAA5AGUAOQBmAGEAMABhADEAYQAyAGEAMwBhADQAYQA1AGEANgBhADcAYQA4AGEAOQBhAGEAYQBiAGEAYwBhAGQAYQBlAGEAZgBiADAAYgAxAGIAMgBiADMAYgA0AGIANQBiADYAYgA3AGIAOABiADkAYgBhAGIAYgBiAGMAYgBkAGIAZQBiAGYAYwAwAGMAMQBjADIAYwAzAGMANABjADUAYwA2AGMANwBjADgAYwA5AGMAYQBjAGIAYwBjAGMAZABjAGUAYwBmAGQAMABkADEAZAAyAGQAMwBkADQAZAA1AGQANgBkADcAZAA4AGQAOQBkAGEAZABiAGQAYwBkAGQAZABlAGQAZgBlADAAZQAxAGUAMgBlADMAZQA0AGUANQBlADYAZQA3AGUAOABlADkAZQBhAGUAYgBlAGMAZQBkAGUAZQBlAGYAZgAwAGYAMQBmADIAZgAzAGYANABmADUAZgA2AGYANwBmADgAZgA5AGYAYQBmAGIAZgBjAGYAZABmAGUAZgBmAEHcGgsBXABB6BoLTwIAAABIAAAAMAAxADIAMwA0ADUANgA3ADgAOQBhAGIAYwBkAGUAZgBnAGgAaQBqAGsAbABtAG4AbwBwAHEAcgBzAHQAdQB2AHcAeAB5AHoAQbwbCwEcAEHIGwsBAgBB3BsLARwAQegbCxECAAAACgAAAC4AZABvAG4AZQBB/BsLARwAQYgcCw0CAAAABgAAAGMAbwBsAEGcHAsBHABBqBwLEwIAAAAMAAAAQgByAG8AawBlAG4AQbwcCwEsAEHIHAsVAgAAAA4AAABoAGUAYQBkAGkAbgBnAEHsHAsBHABB+BwLDwIAAAAIAAAAIABvAGYAIABBjB0LARwAQZgdCxECAAAACgAAACAAZABvAG4AZQBBrB0LARwAQbgdCxECAAAACgAAAGwAYQBiAGUAbABBzB0LARwAQdgdCw0CAAAABgAAAHIAbwB3AEHsHQsBHABB+B0LEQIAAAAKAAAAZAByAGEAZgB0AEGMHgsBLABBmB4LHgIAAAAWAAAAQQBkAGQAIABhACAAdABhAHMAawAmIABBvB4LARwAQcgeCw0CAAAABgAAAGEAZABkAEHcHgsBHABB6B4LEQIAAAAKAAAAaQBuAHAAdQB0AEH8HgsBHABBiB8LDwIAAAAIAAAAYgBpAG4AZABBnB8LASwAQagfCx0CAAAAFgAAAHAAbABhAGMAZQBoAG8AbABkAGUAcgBBzB8LARwAQdgfCxMCAAAADAAAAHMAdQBiAG0AaQB0AEHsHwsBHABB+B8LDQIAAAAGAAAAQQBkAGQAQYwgCwEsAEGYIAsVAgAAAA4AAABwAHIAaQBtAGEAcgB5AEG8IAsBHABByCALEwIAAAAMAAAAYgB1AHQAdABvAG4AQdwgCwEcAEHoIAsLAgAAAAQAAABpAGQAQfwgCwEcAEGIIQsRAgAAAAoAAABzAHQAeQBsAGUAQZwhCwEcAEGoIQsLAgAAAAQAAAB0ADoAQbwhCwEcAEHIIQsRAgAAAAoAAAAuAHQAZQB4AHQAQdwhCwEcAEHoIQsTAgAAAAwAAAB0AG8AZwBnAGwAZQBB/CELARwAQYgiCwsCAAAABAAAAG8AbgBBnCILARwAQagiCwkCAAAAAgAAADEAQbwiCwEcAEHIIgsRAgAAAAoAAABjAGwAZQBhAHIAQdwiCwEsAEHoIgsbAgAAABQAAABDAGwAZQBhAHIAIABkAG8AbgBlAEGMIwsBHABBmCMLEwIAAAAMAAAAaABhAHAAdABpAGMAQawjCwEcAEG4IwsLAgAAAAQAAAAyADAAQdAjCw0EAAAAIAAAACAAAAAg", "trap": "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bABvAGMAYQB0AGkAbwBuACAAdABvAG8AIABsAGEAcgBnAGUAQbwJCwE8AEHICQsnAgAAACAAAAB+AGwAaQBiAC8AcgB0AC8AaQB0AGMAbQBzAC4AdABzAEG8CgsBPABByAoLKwIAAAAkAAAASQBuAGQAZQB4ACAAbwB1AHQAIABvAGYAIAByAGEAbgBnAGUAQfwKCwEsAEGICwsbAgAAABQAAAB+AGwAaQBiAC8AcgB0AC4AdABzAEHMCwsBPABB2AsLJQIAAAAeAAAAfgBsAGkAYgAvAHIAdAAvAHQAbABzAGYALgB0AHMAQYwMCwEsAEGYDAsVAgAAAA4AAAB0AGEAcwBrAHMALgBuAEG8DAsBPABByAwLKwIAAAAkAAAAVQBuAHAAYQBpAHIAZQBkACAAcwB1AHIAcgBvAGcAYQB0AGUAQfwMCwEsAEGIDQsjAgAAABwAAAB+AGwAaQBiAC8AcwB0AHIAaQBuAGcALgB0AHMAQawNCwEcAEG4DQsTAgAAAAwAAAB0AGEAcwBrAHMALgBBzA0LAXwAQdgNC2sCAAAAZAAAAHQAbwBTAHQAcgBpAG4AZwAoACkAIAByAGEAZABpAHgAIABhAHIAZwB1AG0AZQBuAHQAIABtAHUAcwB0ACAAYgBlACAAYgBlAHQAdwBlAGUAbgAgADIAIABhAG4AZAAgADMANgBBzA4LATwAQdgOCy0CAAAAJgAAAH4AbABpAGIALwB1AHQAaQBsAC8AbgB1AG0AYgBlAHIALgB0AHMAQYwPCwEcAEGYDwsJAgAAAAIAAAAwAEGsDwuPAzAAMAAwADEAMAAyADAAMwAwADQAMAA1ADAANgAwADcAMAA4ADAAOQAxADAAMQAxADEAMgAxADMAMQA0ADEANQAxADYAMQA3ADEAOAAxADkAMgAwADIAMQAyADIAMgAzADIANAAyADUAMgA2ADIANwAyADgAMgA5ADMAMAAzADEAMwAyADMAMwAzADQAMwA1ADMANgAzADcAMwA4ADMAOQA0ADAANAAxADQAMgA0ADMANAA0ADQANQA0ADYANAA3ADQAOAA0ADkANQAwADUAMQA1ADIANQAzADUANAA1ADUANQA2ADUANwA1ADgANQA5ADYAMAA2ADEANgAyADYAMwA2ADQANgA1ADYANgA2ADcANgA4ADYAOQA3ADAANwAxADcAMgA3ADMANwA0ADcANQA3ADYANwA3ADcAOAA3ADkAOAAwADgAMQA4ADIAOAAzADgANAA4ADUAOAA2ADgANwA4ADgAOAA5ADkAMAA5ADEAOQAyADkAMwA5ADQAOQA1ADkANgA5ADcAOQA4ADkAOQBBvBILAhwEAEHIEguHCAIAAAAABAAAMAAwADAAMQAwADIAMAAzADAANAAwADUAMAA2ADAANwAwADgAMAA5ADAAYQAwAGIAMABjADAAZAAwAGUAMABmADEAMAAxADEAMQAyADEAMwAxADQAMQA1ADEANgAxADcAMQA4ADEAOQAxAGEAMQBiADEAYwAxAGQAMQBlADEAZgAyADAAMgAxADIAMgAyADMAMgA0ADIANQAyADYAMgA3ADIAOAAyADkAMgBhADIAYgAyAGMAMgBkADIAZQAyAGYAMwAwADMAMQAzADIAMwAzADMANAAzADUAMwA2ADMANwAzADgAMwA5ADMAYQAzAGIAMwBjADMAZAAzAGUAMwBmADQAMAA0ADEANAAyADQAMwA0ADQANAA1ADQANgA0ADcANAA4ADQAOQA0AGEANABiADQAYwA0AGQANABlADQAZgA1ADAANQAxADUAMgA1ADMANQA0ADUANQA1ADYANQA3ADUAOAA1ADkANQBhADUAYgA1AGMANQBkADUAZQA1AGYANgAwADYAMQA2ADIANgAzADYANAA2ADUANgA2ADYANwA2ADgANgA5ADYAYQA2AGIANgBjADYAZAA2AGUANgBmADcAMAA3ADEANwAyADcAMwA3ADQANwA1ADcANgA3ADcANwA4ADcAOQA3AGEANwBiADcAYwA3AGQANwBlADcAZgA4ADAAOAAxADgAMgA4ADMAOAA0ADgANQA4ADYAOAA3ADgAOAA4ADkAOABhADgAYgA4AGMAOABkADgAZQA4AGYAOQAwADkAMQA5ADIAOQAzADkANAA5ADUAOQA2ADkANwA5ADgAOQA5ADkAYQA5AGIAOQBjADkAZAA5AGUAOQBmAGEAMABhADEAYQAyAGEAMwBhADQAYQA1AGEANgBhADcAYQA4AGEAOQBhAGEAYQBiAGEAYwBhAGQAYQBlAGEAZgBiADAAYgAxAGIAMgBiADMAYgA0AGIANQBiADYAYgA3AGIAOABiADkAYgBhAGIAYgBiAGMAYgBkAGIAZQBiAGYAYwAwAGMAMQBjADIAYwAzAGMANABjADUAYwA2AGMANwBjADgAYwA5AGMAYQBjAGIAYwBjAGMAZABjAGUAYwBmAGQAMABkADEAZAAyAGQAMwBkADQAZAA1AGQANgBkADcAZAA4AGQAOQBkAGEAZABiAGQAYwBkAGQAZABlAGQAZgBlADAAZQAxAGUAMgBlADMAZQA0AGUANQBlADYAZQA3AGUAOABlADkAZQBhAGUAYgBlAGMAZQBkAGUAZQBlAGYAZgAwAGYAMQBmADIAZgAzAGYANABmADUAZgA2AGYANwBmADgAZgA5AGYAYQBmAGIAZgBjAGYAZABmAGUAZgBmAEHcGgsBXABB6BoLTwIAAABIAAAAMAAxADIAMwA0ADUANgA3ADgAOQBhAGIAYwBkAGUAZgBnAGgAaQBqAGsAbABtAG4AbwBwAHEAcgBzAHQAdQB2AHcAeAB5AHoAQbwbCwEcAEHIGwsBAgBB3BsLARwAQegbCxECAAAACgAAAC4AZABvAG4AZQBB/BsLARwAQYgcCw0CAAAABgAAAGMAbwBsAEGcHAsBHABBqBwLEQIAAAAKAAAAVABhAHMAawBzAEG8HAsBLABByBwLFQIAAAAOAAAAaABlAGEAZABpAG4AZwBB7BwLARwAQfgcCw8CAAAACAAAACAAbwBmACAAQYwdCwEcAEGYHQsRAgAAAAoAAAAgAGQAbwBuAGUAQawdCwEcAEG4HQsRAgAAAAoAAABsAGEAYgBlAGwAQcwdCwEcAEHYHQsNAgAAAAYAAAByAG8AdwBB7B0LARwAQfgdCxECAAAACgAAAGQAcgBhAGYAdABBjB4LASwAQZgeCx4CAAAAFgAAAEEAZABkACAAYQAgAHQAYQBzAGsAJiAAQbweCwEcAEHIHgsNAgAAAAYAAABhAGQAZABB3B4LARwAQegeCxECAAAACgAAAGkAbgBwAHUAdABB/B4LARwAQYgfCw8CAAAACAAAAGIAaQBuAGQAQZwfCwEsAEGoHwsdAgAAABYAAABwAGwAYQBjAGUAaABvAGwAZABlAHIAQcwfCwEcAEHYHwsTAgAAAAwAAABzAHUAYgBtAGkAdABB7B8LARwAQfgfCw0CAAAABgAAAEEAZABkAEGMIAsBLABBmCALFQIAAAAOAAAAcAByAGkAbQBhAHIAeQBBvCALARwAQcggCxMCAAAADAAAAGIAdQB0AHQAbwBuAEHcIAsBHABB6CALCwIAAAAEAAAAaQBkAEH8IAsBHABBiCELEQIAAAAKAAAAcwB0AHkAbABlAEGcIQsBHABBqCELCwIAAAAEAAAAdAA6AEG8IQsBHABByCELEQIAAAAKAAAALgB0AGUAeAB0AEHcIQsBHABB6CELEwIAAAAMAAAAdABvAGcAZwBsAGUAQfwhCwEcAEGIIgsLAgAAAAQAAABvAG4AQZwiCwEcAEGoIgsJAgAAAAIAAAAxAEG8IgsBHABByCILEQIAAAAKAAAAYwBsAGUAYQByAEHcIgsBLABB6CILGwIAAAAUAAAAQwBsAGUAYQByACAAZABvAG4AZQBBjCMLARwAQZgjCxMCAAAADAAAAGgAYQBwAHQAaQBjAEGsIwsBHABBuCMLCwIAAAAEAAAAMgAwAEHQIwsNBAAAACAAAAAgAAAAIA==", "stats": "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AUH/AXFBOkcNACAALQDUAUH/AXFB5wBHDQAgAC0A1QFB/wFxQeUARw0AIAAtANYBQf8BcUHvAEcNAEEAIQEgACAAQccBEImAgIAAIgJBxwEgAkHHAUgbakEAOgAAA0AgACABaiECIAFBAWoiAyEBIAItAAANAAtBo4iAgABBAyAAIANBf2oQh4CAgAALIABBkAJqJICAgIAACwuEAQEAQYAIC31Mb2NhdGluZ+KApgBidXp6AEJ1enoAcm93AHByb2dyZXNzAGdlbwBidXR0b24AdGFza3MubgBsYWJlbABiaWcAdmFsdWUAd2hlcmUAY2FyZABpZABoYXB0aWMAV2hlcmUgYW0gST8AODAAUHJvZ3Jlc3MgKEMgbGF5ZXIpAAC3AQRuYW1lAAsKc3RhdHMud2FzbQGCAQ0ACV9rdl9nZXRfbgEJX3VpX2JlZ2luAghfdWlfdGV4dAMHX3VpX2VuZAQIX3VpX2F0dHIFCV9rdl9nZXRfcwYGX2V2X2lkBwlfa3Zfc2V0X3MIBF9jYXAJB19ldl92YWwKCmxscF9zY2hlbWELCGxscF92aWV3DAlsbHBfZXZlbnQHEgEAD19fc3RhY2tfcG9pbnRlcgkKAQAHLnJvZGF0YQA4CXByb2R1Y2VycwEMcHJvY2Vzc2VkLWJ5AQxVYnVudHUgY2xhbmcRMTguMS4zICgxdWJ1bnR1MSkALA90YXJnZXRfZmVhdHVyZXMCKw9tdXRhYmxlLWdsb2JhbHMrCHNpZ24tZXh0"};
+const SRC = {"app": "// \"Tasks\" main layer \u2014 written in AssemblyScript (TypeScript-like).\nimport { col, row, card, heading, label, big, button, input, toggle, end, text,\n         getNum, setNum, getStr, setStr, eventId, eventValue, cap, fmt } from \"./sdk\";\n\nexport function llp_schema(): i32 { return 1; }\nexport function llp_migrate(from: i32): void {}\n\nexport function llp_view(): void {\n  const n = <i32>getNum(\"tasks.n\");\n  let done = 0;\n  for (let i = 0; i < n; i++) if (getNum(\"tasks.\" + i.toString() + \".done\") > 0) done++;\n\n  col();\n    heading(\"Tasks\");\n    label(done.toString() + \" of \" + n.toString() + \" done\");\n    row();\n      input(\"draft\", \"Add a task\u2026\", \"add\");\n      button(\"add\", \"Add\", \"primary\");\n    end();\n    for (let i = 0; i < n; i++) {\n      const k = \"tasks.\" + i.toString();\n      toggle(\"t:\" + i.toString(), getNum(k + \".done\") > 0, getStr(k + \".text\"));\n    }\n    if (done > 0) button(\"clear\", \"Clear done\");\n  end();\n}\n\nexport function llp_event(): void {\n  const id = eventId();\n  if (id == \"add\") {\n    const draft = getStr(\"draft\");\n    if (draft.length == 0) return;\n    const n = <i32>getNum(\"tasks.n\");\n    setStr(\"tasks.\" + n.toString() + \".text\", draft);\n    setNum(\"tasks.\" + n.toString() + \".done\", 0);\n    setNum(\"tasks.n\", n + 1);\n    setStr(\"draft\", \"\");\n  } else if (id.startsWith(\"t:\")) {\n    const k = \"tasks.\" + id.substr(2);\n    const now = getNum(k + \".done\") > 0 ? 0.0 : 1.0;\n    setNum(k + \".done\", now);\n    if (now > 0) cap(\"haptic\", \"20\");\n  } else if (id == \"clear\") {\n    const n = <i32>getNum(\"tasks.n\");\n    let w = 0;\n    for (let i = 0; i < n; i++) {\n      const k = \"tasks.\" + i.toString();\n      if (getNum(k + \".done\") == 0) {\n        const t = getStr(k + \".text\");\n        setStr(\"tasks.\" + w.toString() + \".text\", t);\n        setNum(\"tasks.\" + w.toString() + \".done\", 0);\n        w++;\n      }\n    }\n    setNum(\"tasks.n\", w);\n  }\n}\n", "sdk": "// Live Layer Protocol (LLP) v0 \u2014 AssemblyScript SDK\n// A layer is stateless code. State lives in the host, so swapping a layer never loses it.\n\n@external(\"llp\", \"ui_begin\") declare function _ui_begin(p: usize, l: i32): void;\n@external(\"llp\", \"ui_attr\") declare function _ui_attr(kp: usize, kl: i32, vp: usize, vl: i32): void;\n@external(\"llp\", \"ui_text\") declare function _ui_text(p: usize, l: i32): void;\n@external(\"llp\", \"ui_end\") declare function _ui_end(): void;\n@external(\"llp\", \"kv_get_n\") declare function _kv_get_n(kp: usize, kl: i32, def: f64): f64;\n@external(\"llp\", \"kv_set_n\") declare function _kv_set_n(kp: usize, kl: i32, v: f64): void;\n@external(\"llp\", \"kv_get_s\") declare function _kv_get_s(kp: usize, kl: i32, bp: usize, cap: i32): i32;\n@external(\"llp\", \"kv_set_s\") declare function _kv_set_s(kp: usize, kl: i32, vp: usize, vl: i32): void;\n@external(\"llp\", \"ev_id\") declare function _ev_id(bp: usize, cap: i32): i32;\n@external(\"llp\", \"ev_val\") declare function _ev_val(bp: usize, cap: i32): i32;\n@external(\"llp\", \"cap\") declare function _cap(np: usize, nl: i32, ap: usize, al: i32): i32;\n@external(\"llp\", \"log\") declare function _log(p: usize, l: i32): void;\n@external(\"llp\", \"now\") declare function _now(): f64;\n\nconst BUF_CAP: i32 = 8192;\nconst BUF = new ArrayBuffer(BUF_CAP);\n\nfunction bp(): usize { return changetype<usize>(BUF); }\n\n// ---- UI (immediate mode: begin/attr/text/end) ----\nexport function el(kind: string): void { const b = String.UTF8.encode(kind); _ui_begin(changetype<usize>(b), b.byteLength); }\nexport function attr(k: string, v: string): void {\n  const a = String.UTF8.encode(k); const c = String.UTF8.encode(v);\n  _ui_attr(changetype<usize>(a), a.byteLength, changetype<usize>(c), c.byteLength);\n}\nexport function end(): void { _ui_end(); }\nexport function text(s: string): void { const b = String.UTF8.encode(s); _ui_text(changetype<usize>(b), b.byteLength); }\n\nexport function col(): void { el(\"col\"); }\nexport function row(): void { el(\"row\"); }\nexport function card(): void { el(\"card\"); }\nexport function heading(s: string): void { el(\"heading\"); text(s); end(); }\nexport function label(s: string): void { el(\"label\"); text(s); end(); }\nexport function big(s: string): void { el(\"big\"); text(s); end(); }\nexport function button(id: string, caption: string, style: string = \"\"): void {\n  el(\"button\"); attr(\"id\", id); if (style.length > 0) attr(\"style\", style); text(caption); end();\n}\nexport function input(bind: string, placeholder: string, submit: string = \"\"): void {\n  el(\"input\"); attr(\"bind\", bind); attr(\"placeholder\", placeholder); if (submit.length > 0) attr(\"submit\", submit); end();\n}\nexport function toggle(id: string, on: bool, caption: string): void {\n  el(\"toggle\"); attr(\"id\", id); attr(\"on\", on ? \"1\" : \"0\"); text(caption); end();\n}\n\n// ---- State (host-owned key/value store) ----\nexport function getNum(k: string, def: f64 = 0): f64 { const b = String.UTF8.encode(k); return _kv_get_n(changetype<usize>(b), b.byteLength, def); }\nexport function setNum(k: string, v: f64): void { const b = String.UTF8.encode(k); _kv_set_n(changetype<usize>(b), b.byteLength, v); }\nexport function getStr(k: string): string {\n  const b = String.UTF8.encode(k);\n  const n = _kv_get_s(changetype<usize>(b), b.byteLength, bp(), BUF_CAP);\n  return String.UTF8.decodeUnsafe(bp(), <usize>min(n, BUF_CAP));\n}\nexport function setStr(k: string, v: string): void {\n  const a = String.UTF8.encode(k); const c = String.UTF8.encode(v);\n  _kv_set_s(changetype<usize>(a), a.byteLength, changetype<usize>(c), c.byteLength);\n}\n\n// ---- Events ----\nexport function eventId(): string { const n = _ev_id(bp(), BUF_CAP); return String.UTF8.decodeUnsafe(bp(), <usize>min(n, BUF_CAP)); }\nexport function eventValue(): string { const n = _ev_val(bp(), BUF_CAP); return String.UTF8.decodeUnsafe(bp(), <usize>min(n, BUF_CAP)); }\n\n// ---- Capabilities (results come back as an event \"cap:<name>\") ----\nexport function cap(name: string, arg: string = \"\"): i32 {\n  const a = String.UTF8.encode(name); const c = String.UTF8.encode(arg);\n  return _cap(changetype<usize>(a), a.byteLength, changetype<usize>(c), c.byteLength);\n}\nexport function log(s: string): void { const b = String.UTF8.encode(s); _log(changetype<usize>(b), b.byteLength); }\nexport function now(): f64 { return _now(); }\n\nexport function fmt(n: f64): string {\n  if (n == Math.floor(n) && Math.abs(n) < 1e15) return (<i64>n).toString();\n  return n.toString();\n}\n", "c": "// \"Stats\" footer layer \u2014 written in C. Shares state with the Tasks layer through the host.\n#include \"../../sdk/c/llp.h\"\n\nstatic char kbuf[64], nbuf[16], sbuf[256];\n\nstatic int done_count(int n) {\n  int d = 0;\n  for (int i = 0; i < n; i++) {\n    kbuf[0] = 0; cat(kbuf, \"tasks.\"); cat(kbuf, itoa(i, nbuf)); cat(kbuf, \".done\");\n    if (get_num(kbuf, 0) > 0) d++;\n  }\n  return d;\n}\n\nEXPORT(\"llp_schema\") int llp_schema(void) { return 1; }\n\nEXPORT(\"llp_view\") void llp_view(void) {\n  int n = (int)get_num(\"tasks.n\", 0);\n  int d = done_count(n);\n  int pct = n ? (d * 100) / n : 0;\n  el(\"card\");\n    el(\"row\");\n      el(\"label\"); text(\"Progress (C layer)\"); end();\n      el(\"big\"); sbuf[0] = 0; cat(sbuf, itoa(pct, nbuf)); cat(sbuf, \"%\"); text(sbuf); end();\n    end();\n    el(\"progress\"); attr(\"value\", itoa(pct, nbuf)); end();\n    el(\"row\");\n      button(\"where\", \"Where am I?\");\n      button(\"buzz\", \"Buzz\");\n    end();\n    if (get_str(\"geo\", sbuf, sizeof sbuf) > 0) { el(\"label\"); text(sbuf); end(); }\n  end();\n}\n\nEXPORT(\"llp_event\") void llp_event(void) {\n  char id[64]; int n = _ev_id(id, 63); if (n > 63) n = 63; id[n] = 0;\n  if (llp_eq(id, n, \"where\")) { set_str(\"geo\", \"Locating\u2026\"); cap_call(\"geo\", \"\"); }\n  else if (llp_eq(id, n, \"buzz\")) { cap_call(\"haptic\", \"80\"); }\n  else if (llp_eq(id, n, \"cap:geo\")) {\n    char v[200]; int m = _ev_val(v, 199); if (m > 199) m = 199; v[m] = 0;\n    set_str(\"geo\", v);\n  }\n}\n"};
+const bytesOf = (k) => b64.dec(WASM[k]);
+const $ = (id) => document.getElementById(id);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const deviceId = store.get("llp.device") || (() => { const id = Math.random().toString(36).slice(2, 7); store.set("llp.device", id); return id; })();
+
+// ---------- publisher identity (per device) ----------
+const ECDSA_P = { name: "ECDSA", namedCurve: "P-256" };
+let myPriv, myPub;
+try {
+  const saved = JSON.parse(store.get("llp.key") || "null");
+  if (saved) { myPriv = await crypto.subtle.importKey("jwk", saved.priv, ECDSA_P, false, ["sign"]); myPub = saved.pub; }
+} catch {}
+if (!myPriv) {
+  const kp = await crypto.subtle.generateKey(ECDSA_P, true, ["sign", "verify"]);
+  myPriv = kp.privateKey; myPub = await crypto.subtle.exportKey("jwk", kp.publicKey);
+  store.set("llp.key", JSON.stringify({ priv: await crypto.subtle.exportKey("jwk", kp.privateKey), pub: myPub }));
+}
+const keyId = (jwk) => (jwk.x || "").slice(0, 8);
+const pinned = JSON.parse(store.get("llp.trusted") || "[]");
+const trusted = [myPub, ...pinned];
+
+// ---------- the host ----------
+const blobs = new Map();
+let build = 0;
+const builds = new Map(); // manifest version -> friendly build number
+const host = new LiveHost({
+  trustedKeys: trusted,
+  capabilities: {
+    haptic: async (ms) => { try { navigator.vibrate?.(+ms || 20); } catch {} const s = $("screen"); s.classList.remove("buzz"); void s.offsetWidth; s.classList.add("buzz"); },
+    geo: async () => "Location isn't granted to this host. The layer handled the refusal.",
+  },
+  onRender: (slots) => paint(slots),
+  onLog: (e) => logLine(e.kind, e.msg),
+});
+
+// restore host-owned state from the last session on this device
+try { const saved = JSON.parse(store.get("llp.kv") || "null"); if (saved) host.kv = new Map(saved); } catch {}
+if (!host.kv.has("tasks.n")) {
+  [["Write the LLP spec", 1], ["Stream a layer to my phone", 0], ["Break a layer on purpose", 0]].forEach(([t, d], i) => { host.kv.set(`tasks.${i}.text`, t); host.kv.set(`tasks.${i}.done`, d); });
+  host.kv.set("tasks.n", 3);
+}
+const saveKv = () => store.set("llp.kv", JSON.stringify([...host.kv]));
+
+// ---------- rendering (host-native DOM for the LLP UI vocabulary) ----------
+function txt(n) { return (n.c || []).filter((c) => c.k === "text").map((c) => c.t).join(""); }
+function make(n, slot) {
+  const a = n.a || {};
+  let el;
+  switch (n.k) {
+    case "text": return document.createTextNode(n.t);
+    case "heading": el = document.createElement("h3"); el.className = "u-heading"; el.textContent = txt(n); return el;
+    case "label": el = document.createElement("div"); el.className = "u-label"; el.textContent = txt(n); return el;
+    case "big": el = document.createElement("div"); el.className = "u-big"; el.textContent = txt(n); return el;
+    case "button": el = document.createElement("button"); el.className = "u-button"; el.type = "button"; el.textContent = txt(n);
+      if (a.style) el.dataset.style = a.style; el.onclick = () => act(slot, a.id); return el;
+    case "toggle": el = document.createElement("button"); el.className = "u-toggle"; el.type = "button"; el.setAttribute("aria-pressed", a.on === "1");
+      el.innerHTML = '<span class="box"></span><span class="t"></span>'; el.lastChild.textContent = txt(n); el.onclick = () => act(slot, a.id); return el;
+    case "input": el = document.createElement("input"); el.className = "u-input"; el.id = `in-${slot}-${a.bind}`; el.placeholder = a.placeholder || ""; el.dataset.bind = a.bind;
+      el.value = host.kv.get(a.bind) ?? ""; el.oninput = () => { host.setBound(a.bind, el.value); saveKv(); };
+      el.onkeydown = (e) => { if (e.key === "Enter" && a.submit) act(slot, a.submit); }; return el;
+    case "progress": el = document.createElement("div"); el.className = "u-progress"; el.setAttribute("role", "progressbar"); el.setAttribute("aria-valuenow", a.value);
+      el.innerHTML = "<i></i>"; el.firstChild.style.width = Math.max(0, Math.min(100, +a.value || 0)) + "%"; return el;
+    default: el = document.createElement("div"); el.className = "u-" + (["col", "row", "card"].includes(n.k) ? n.k : "col");
+      for (const c of n.c || []) el.appendChild(make(c, slot)); return el;
+  }
+}
+function paint(slots) {
+  const screen = $("screen");
+  // keep focus and caret in a bound input across re-renders and swaps
+  const f = document.activeElement; const keep = f && f.dataset?.bind ? { id: f.id, s: f.selectionStart, e: f.selectionEnd } : null;
+  const frag = document.createDocumentFragment();
+  for (const s of slots) {
+    const box = document.createElement("div"); box.className = "slot";
+    const tag = document.createElement("div"); tag.className = "slotname"; tag.textContent = s.slot; box.appendChild(tag);
+    if (s.error) { const e = document.createElement("div"); e.className = "slot-err"; e.textContent = s.error; box.appendChild(e); }
+    else box.appendChild(make(s.tree, s.slot));
+    frag.appendChild(box);
+  }
+  screen.replaceChildren(frag);
+  if (keep) { const el = document.getElementById(keep.id); if (el) { el.focus(); try { el.setSelectionRange(keep.s, keep.e); } catch {} } }
+}
+async function act(slot, id) { await host.dispatch(slot, id); saveKv(); }
+
+// ---------- log + status ----------
+function logLine(kind, msg) {
+  const li = document.createElement("li");
+  li.innerHTML = '<span class="k"></span><span class="m"></span>';
+  li.firstChild.textContent = kind; li.firstChild.classList.add(kind); li.lastChild.textContent = msg.replace(/v(\d{6,})/g, (_, v) => "build " + (builds.get(+v) ?? "?"));
+  $("log").prepend(li);
+  if (kind === "reject" || kind === "error") setChip("bad", "refused · still on build " + (builds.get(host.version) ?? "—"));
+  if (kind === "rollback") setChip("warn", "reverted after crash");
+}
+function setChip(cls, text) { const c = $("chip"); c.className = "chip " + (cls || ""); $("chip-text").textContent = text; }
+function showVersion(ms) {
+  const b = builds.get(host.version) ?? "—";
+  $("f-build").textContent = b; $("me-ver").textContent = "build " + b;
+  if (ms != null) $("f-ms").textContent = ms + " ms";
+  $("f-hash").textContent = (host.slots.get("main")?.hash || "—").slice(0, 8);
+  setChip("", "live · build " + b);
+  const s = $("screen"); s.classList.add("swap"); setTimeout(() => s.classList.remove("swap"), 450);
+  presenceUpdate();
+}
+
+// ---------- publishing (this device as publisher) ----------
+const FOOTER = bytesOf("stats");
+async function stage(bytes) { const h = await sha256(bytes); blobs.set(h, bytes); return h; }
+async function makeManifest(mainBytes, footerBytes = FOOTER, version) {
+  const layers = { main: await stage(mainBytes), footer: await stage(footerBytes) };
+  const m = { app: "demo.tasks", version: version ?? Math.max(Date.now(), host.version + 1), layers, order: ["main", "footer"] };
+  builds.set(m.version, ++build);
+  return m;
+}
+async function deliverLocal(m, sig, fetchBlob = async (h) => blobs.get(h)) {
+  const r = await host.apply(m, sig, fetchBlob);
+  if (r.ok) { showVersion(r.ms); saveKv(); }
+  return r;
+}
+async function publish(mainBytes) {
+  const m = await makeManifest(mainBytes);
+  const sig = await signManifest(m, myPriv);
+  const r = await deliverLocal(m, sig);
+  if (r.ok) await pushRemote(m, sig);
+  return r;
+}
+
+document.querySelectorAll("[data-push]").forEach((btn) => btn.addEventListener("click", async () => {
+  const k = btn.dataset.push;
+  if (k === "v1") return publish(bytesOf("tasks"));
+  if (k === "v2") return publish(bytesOf("v2"));
+  if (k === "broken") return publish(bytesOf("broken"));
+  if (k === "trap") { const r = await publish(bytesOf("trap")); if (r.ok) logLine("net", "This layer is live but crashes when you add a task. Type one and press Add."); return; }
+  if (k === "untrusted") {
+    const kp = await crypto.subtle.generateKey(ECDSA_P, true, ["sign", "verify"]);
+    const m = await makeManifest(bytesOf("v2"));
+    return deliverLocal(m, await signManifest(m, kp.privateKey));
+  }
+  if (k === "tamper") {
+    const m = await makeManifest(bytesOf("v2"));
+    const sig = await signManifest(m, myPriv);
+    return deliverLocal(m, sig, async (h) => h === m.layers.main ? bytesOf("broken") : blobs.get(h));
+  }
+}));
+
+// ---------- boot: factory build 1 ----------
+{
+  const m = await makeManifest(bytesOf("tasks"), FOOTER, 1);
+  await deliverLocal(m, await signManifest(m, myPriv));
+}
+
+// ---------- cross-device stream: db holds signed manifests + content-addressed blobs ----------
+let db = null, room = null, lastRemote = 0;
+async function pushRemote(m, sig) {
+  if (!db) return;
+  try {
+    for (const h of Object.values(m.layers)) {
+      const doc = db.doc("blobs/" + h);
+      const snap = await doc.get();
+      if (!snap.exists) await doc.set({ data: b64.enc(blobs.get(h)) });
+    }
+    lastRemote = m.version;
+    await db.doc("llp/manifest").set({ manifest: m, sig, pub: myPub, from: deviceId });
+    logLine("net", "Streamed to other devices");
+  } catch (e) { logLine("error", "Couldn't stream to other devices: " + (e.message || e.code)); }
+}
+async function onRemote(data) {
+  if (!data?.manifest || data.manifest.version <= host.version) return; // our own echo or old news
+  const pubId = keyId(data.pub);
+  if (!trusted.some((k) => keyId(k) === pubId)) {
+    if (!pinned.length) { pinned.push(data.pub); trusted.push(data.pub); store.set("llp.trusted", JSON.stringify(pinned)); logLine("net", `Trusting publisher key ${pubId} from device ${data.from} (first seen)`); }
+    else return askTrust(data);
+  }
+  if (!builds.has(data.manifest.version)) builds.set(data.manifest.version, ++build);
+  logLine("net", `Manifest arrived from device ${data.from}`);
+  await deliverLocal(data.manifest, data.sig, async (h) => {
+    const snap = await db.doc("blobs/" + h).get();
+    if (!snap.exists) throw new Error("blob missing");
+    return b64.dec(snap.data().data);
+  });
+}
+function askTrust(data) {
+  const box = $("trust-box");
+  box.innerHTML = '<div class="trust"><b></b><span class="hint"></span><div class="row-actions"><button class="btn" id="trust-yes">Trust this key</button><button class="btn ghost" id="trust-no">Ignore</button></div></div>';
+  box.querySelector("b").textContent = `Device ${data.from} pushed code signed with key ${keyId(data.pub)}`;
+  box.querySelector(".hint").textContent = "This host only runs code from keys it trusts. Trust it if that device is yours.";
+  $("trust-yes").onclick = () => { pinned.push(data.pub); trusted.push(data.pub); store.set("llp.trusted", JSON.stringify(pinned)); box.replaceChildren(); onRemote(data); };
+  $("trust-no").onclick = () => { box.replaceChildren(); logLine("reject", `Ignored code signed by untrusted key ${keyId(data.pub)}`); };
+}
+
+const peers = new Map();
+function presenceUpdate() { try { room?.presence({ device: deviceId, build: builds.get(host.version) ?? 0, hash: (host.slots.get("main")?.hash || "").slice(0, 8) }); } catch {} }
+function paintPeers(list) {
+  const box = $("devices"); box.replaceChildren();
+  const me = document.createElement("div"); me.className = "d"; me.innerHTML = '<span>This device</span><span class="mono" id="me-ver"></span>'; me.lastChild.textContent = "build " + (builds.get(host.version) ?? "—") + " · " + (host.slots.get("main")?.hash || "").slice(0, 8);
+  box.appendChild(me);
+  for (const p of list) {
+    if (p.self || !p.state?.device) continue;
+    const d = document.createElement("div"); d.className = "d";
+    d.innerHTML = '<span></span><span class="mono"></span>'; d.firstChild.textContent = "Device " + p.state.device; d.lastChild.textContent = "running " + (p.state.hash || "—");
+    box.appendChild(d);
+  }
+}
+
+(async () => {
+  db = await window.claude?.use?.("db");
+  if (!db) { $("net-hint").textContent = "Cross-device streaming needs you signed in to claude.ai. Streaming to this host still works."; return; }
+  $("net-hint").textContent = "Stream connected. Open this page on another device; pushes from either one reach both.";
+  db.doc("llp/manifest").onSnapshot((snap) => { if (snap.exists) onRemote(snap.data()); }, (e) => { $("net-hint").textContent = "Stream unavailable: " + (e.message || e.code); });
+  room = await window.claude?.use?.("room");
+  if (room) { room.onPeers((list) => paintPeers(list)); presenceUpdate(); }
+})();
+
+// ---------- live editor: compile AssemblyScript in the browser ----------
+const srcKey = "llp.src.app";
+const tabs = { app: store.get(srcKey) || SRC.app, c: SRC.c, sdk: SRC.sdk };
+let tab = "app";
+const code = $("code");
+code.value = tabs.app;
+code.addEventListener("input", () => { if (tab === "app") { tabs.app = code.value; store.set(srcKey, code.value); } });
+document.querySelectorAll("[data-tab]").forEach((t) => t.addEventListener("click", () => {
+  tab = t.dataset.tab; document.querySelectorAll("[data-tab]").forEach((x) => x.setAttribute("aria-selected", x === t));
+  code.value = tabs[tab]; code.readOnly = tab !== "app";
+}));
+$("reset-src").onclick = () => { tabs.app = SRC.app; store.set(srcKey, SRC.app); if (tab === "app") code.value = SRC.app; };
+
+let ascMod = null;
+$("compile").onclick = async () => {
+  const btn = $("compile"), st = $("compile-status"), err = $("compile-err");
+  btn.disabled = true; err.hidden = true;
+  try {
+    if (!ascMod) { st.textContent = "Downloading the compiler (first time only)…"; ascMod = (await import("assemblyscript/asc")).default; }
+    st.textContent = "Compiling…";
+    const t0 = performance.now(); const out = {}; let stderr = "";
+    const files = { "app.ts": tabs.app.replace(/from\s+"[^"]*llp"/, 'from "./sdk"'), "sdk.ts": SRC.sdk };
+    const res = await ascMod.main(["app.ts", "-O3", "-o", "app.wasm"], {
+      readFile: (n) => files[n.replace(/^\.\//, "")] ?? null, writeFile: (n, c) => { out[n] = c; }, listFiles: () => [],
+      stderr: { write: (s) => { stderr += typeof s === "string" ? s : new TextDecoder().decode(s); return true; } },
+      stdout: { write: () => true },
+    });
+    if (res.error || !out["app.wasm"]) { err.textContent = stderr || String(res.error); err.hidden = false; st.textContent = "Compile failed. Nothing was streamed."; return; }
+    const ms = Math.round(performance.now() - t0);
+    const r = await publish(out["app.wasm"]);
+    st.textContent = r.ok ? `Compiled in ${ms} ms and streamed. ${out["app.wasm"].length} bytes.` : `Compiled in ${ms} ms, but the host refused it: ${r.reason}`;
+  } catch (e) { err.textContent = String(e.stack || e); err.hidden = false; st.textContent = "The compiler couldn't load in this browser."; }
+  finally { btn.disabled = false; }
+};
+</script>
