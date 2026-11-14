@@ -19,6 +19,8 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
 | `tools/ai-publish.mjs`, `ai/` | AI publishing loop: prompt, model writes a layer, compile, shadow check, approve, stream |
 | `test/ai-loop.mjs` | 12 tests of the AI loop over real processes |
+| `host/fleet.js`, `tools/fleet.mjs`, `host/fleet-host.mjs` | Fleet operations: channels, percentage rollouts, convergence, key rotation (SPEC section 12) |
+| `test/fleet.mjs` | 28 fleet tests: a 48-host simulation plus 20 hosts in 4 real processes over WebSocket |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
 | `service/`, `install/`, `Install-LiveLayer.cmd` | Per-device service, CLI and installers |
 | `web/` | Browser Live Host page (`build.py` inlines the core and layers into `index.html`) |
@@ -126,6 +128,33 @@ What the shadow check does, before you are asked: it starts the live layers in a
 
 Files: the live source is `.ai-live/current.ts`, every attempt is in `.ai-live/attempts/`, and each change is logged with its timings in `.ai-live/history.jsonl`. Restarting resumes from `current.ts` (use `--fresh` to start over).
 
+## Fleet: channels, staged rollouts, key rotation
+
+Terminal 1, the fleet controller (keys go to `keys/fleet/`; the root key would live offline in production):
+
+```bash
+node tools/fleet.mjs --port 7720
+```
+
+Terminal 2, five hosts on the stable channel, each keeping its accepted keyring on disk:
+
+```bash
+node host/fleet-host.mjs ws://localhost:7720 keys/fleet/keyring.pinned.json --id laptop --channel stable --count 5 --trust-dir .fleet-trust
+```
+
+Then type into terminal 1:
+
+```
+publish stable 100 main=build/tasks.wasm footer=build/stats.wasm   # everyone
+publish stable 20 main=build/tasks_v2.wasm footer=build/stats.wasm # 20% of hosts
+percent stable 100                                                 # widen
+status stable                                                      # convergence report
+rollout stable 10,50,100 main=build/tasks_broken.wasm footer=build/stats.wasm  # halts at 10% and rolls back
+rotate                                                             # new release key, fleet-wide
+```
+
+Tests: `npm run test:fleet` (28 checks). In a 48-host simulation: share accuracy over 10,000 ids, channel isolation, exact cohorts, widening only adds hosts, user state kept, offline hosts catching up, a broken release halted at 10% and a crashing one at 20% (caught by host revert reports while traffic runs), release and 2-of-3 root rotation, a revoked key refused, and a late host walking the whole keyring chain. Over the wire: 20 hosts in 4 processes, a 30% rollout, a dead process shown as offline, rotation, restart catch-up, and a rogue stream using the revoked key. `FLEET_HOSTS=300 npm run test:fleet` runs the simulation with 300 hosts.
+
 ## Status
 
-The run-anywhere hosts design (SPEC section 10) is not implemented or tested. Known v0 gaps are listed in SPEC section 11; the biggest is that a layer stuck in an infinite loop can still freeze its host.
+The run-anywhere hosts design (SPEC section 10) is not implemented or tested. Fleet operations (SPEC section 12) are implemented and tested. Known v0 gaps are listed in SPEC section 11; the biggest is that a layer stuck in an infinite loop can still freeze its host.
