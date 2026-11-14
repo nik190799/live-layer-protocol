@@ -17,6 +17,8 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/run.mjs` | The 14 core proof tests (in-process) |
 | `test/service.mjs` | 10 tests of the per-device service |
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
+| `tools/ai-publish.mjs`, `ai/` | AI publishing loop: prompt, model writes a layer, compile, shadow check, approve, stream |
+| `test/ai-loop.mjs` | 12 tests of the AI loop over real processes |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
 | `service/`, `install/`, `Install-LiveLayer.cmd` | Per-device service, CLI and installers |
 | `web/` | Browser Live Host page (`build.py` inlines the core and layers into `index.html`) |
@@ -29,7 +31,7 @@ Requires Node 22+. The compiled layers are committed in `build/`, so no compiler
 git clone https://github.com/nik190799/live-layer-protocol.git
 cd live-layer-protocol
 npm install
-npm test          # 34 checks: core rules, the service, and live over-the-wire attacks
+npm test          # 46 checks: core rules, the service, live over-the-wire attacks, and the AI loop
 ```
 
 ### Watch it update live
@@ -96,6 +98,33 @@ Install:
 Then, from any terminal: `llp push <app> <slot>=<file.wasm> ...`, `llp watch ...` (push on every save), `llp status`, `llp key`, `llp trust <key.json>`.
 
 Tests: `node test/service.mjs` (10 checks: install, two live clients, capability effects, refusal, origin blocking, restart with state restored, swap after restart, status).
+
+## AI publishing loop (prompt to live app)
+
+Type what you want changed. A model writes the new layer, and the loop compiles it to Wasm, shadow-checks it, shows you a diff and a preview, and after you answer `y` signs it and streams it into the running app. State is kept. If the layer fails to compile, traps or hangs in the shadow check, or the running host refuses it, the error goes back to the model and it tries again (up to `--max-attempts`, default 4).
+
+Terminal 1, the AI publisher (it is also the stream server):
+
+```bash
+export ANTHROPIC_API_KEY=...        # from console.anthropic.com; never commit it
+npm run ai                          # uses Claude when a key is set; model: claude-opus-5-5 (override with LLP_MODEL, LLP_EFFORT)
+```
+
+Terminal 2, the running app:
+
+```bash
+node host/node-host.mjs ws://localhost:7700 keys/publisher.pub.json
+set draft Buy milk
+click main add
+```
+
+Then in terminal 1 at `ai>` type a change, for example `show how many tasks are left and add a clear all button`. At `approve?` answer `y` to ship, `n` to discard, or `r <what to change>` to send it back.
+
+Without a key it uses a stub backend that ignores the prompt and returns two canned replies (the first has a compile error), so you can see the whole loop work: `npm run ai`.
+
+What the shadow check does, before you are asked: it starts the live layers in a worker thread, uses the current layer like a person would to build real-looking state, swaps the candidate in with the real host core, clicks every button it draws, and stops it after 3 seconds if it hangs. The running host still does its own check against its real state when the layer arrives.
+
+Files: the live source is `.ai-live/current.ts`, every attempt is in `.ai-live/attempts/`, and each change is logged with its timings in `.ai-live/history.jsonl`. Restarting resumes from `current.ts` (use `--fresh` to start over).
 
 ## Status
 

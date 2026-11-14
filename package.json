@@ -3,16 +3,19 @@
   "version": "1.0.0",
   "description": "Live Layer Protocol: stream signed WebAssembly layers into a running app, no CI/CD",
   "scripts": {
-    "test": "node test/run.mjs && node test/service.mjs && node test/live-e2e.mjs",
+    "test": "node test/run.mjs && node test/service.mjs && node test/live-e2e.mjs && node test/ai-loop.mjs",
     "test:core": "node test/run.mjs",
     "test:service": "node test/service.mjs",
     "test:live": "node test/live-e2e.mjs",
-    "build": "asc layers/tasks-as/app.ts -o build/tasks.wasm -O3 && clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c && asc layers/variants/tasks_v2.ts -o build/tasks_v2.wasm -O3 && asc layers/variants/tasks_broken.ts -o build/tasks_broken.wasm -O3 && asc layers/variants/tasks_trap.ts -o build/tasks_trap.wasm -O3"
+    "build": "asc layers/tasks-as/app.ts -o build/tasks.wasm -O3 && clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c && asc layers/variants/tasks_v2.ts -o build/tasks_v2.wasm -O3 && asc layers/variants/tasks_broken.ts -o build/tasks_broken.wasm -O3 && asc layers/variants/tasks_trap.ts -o build/tasks_trap.wasm -O3",
+    "test:ai": "node test/ai-loop.mjs",
+    "ai": "node tools/ai-publish.mjs --port 7700 footer=build/stats.wasm"
   },
   "keywords": [],
   "author": "",
   "license": "UNLICENSED",
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "assemblyscript": "^0.28.20",
     "ws": "^8.22.1"
   },
