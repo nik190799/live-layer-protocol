@@ -35,6 +35,52 @@ async function verifyManifest(manifest, sig, jwk) {
 
 export class LayerError extends Error {}
 
+// ---------- host state ----------
+// A Map with a change log. Each layer worker holds a replica of the store; the log lets the host send
+// a worker only the keys that changed since its last call instead of copying the whole store per call
+// (which cost 157 ms per event at 100k keys and broke the 100 ms call limit at 1M keys).
+const LOG_MAX = 65536;
+let storeSeq = 0;
+export class Store {
+  constructor(init) { this.map = new Map(init ?? []); this.log = []; this.base = 0; this.id = ++storeSeq; this.onChange = null; }
+  get rev() { return this.base + this.log.length; }
+  get size() { return this.map.size; }
+  get(k) { return this.map.get(k); }
+  has(k) { return this.map.has(k); }
+  keys() { return this.map.keys(); }
+  values() { return this.map.values(); }
+  entries() { return this.map.entries(); }
+  forEach(f) { this.map.forEach(f); }
+  [Symbol.iterator]() { return this.map[Symbol.iterator](); }
+  set(k, v) { this.map.set(k, v); this.note(k); return this; }
+  delete(k) { const had = this.map.delete(k); if (had) this.note(k); return had; }
+  note(k) {
+    this.log.push(k);
+    if (this.log.length > LOG_MAX) { const drop = this.log.length - (LOG_MAX >> 1); this.log.splice(0, drop); this.base += drop; }
+    this.onChange?.(k);
+  }
+  // Keys changed after `rev`, or null when the log no longer reaches back that far.
+  since(rev) { return rev < this.base ? null : [...new Set(this.log.slice(rev - this.base))]; }
+  snapshot() { return this.map; }
+  fork() { return new Overlay(this); }
+}
+// Copy-on-write view used to stage a swap: writes stay here until commit(), so staging costs
+// O(keys written), not O(store size).
+const GONE = Symbol("deleted");
+class Overlay {
+  constructor(parent) { this.parent = parent; this.writes = new Map(); this.log = []; this.base = 0; this.id = ++storeSeq; }
+  get rev() { return this.log.length; }
+  get(k) { if (this.writes.has(k)) { const v = this.writes.get(k); return v === GONE ? undefined : v; } return this.parent.get(k); }
+  has(k) { return this.writes.has(k) ? this.writes.get(k) !== GONE : this.parent.has(k); }
+  set(k, v) { this.writes.set(k, v); this.log.push(k); return this; }
+  delete(k) { const had = this.has(k); this.writes.set(k, GONE); this.log.push(k); return had; }
+  since(rev) { return [...new Set(this.log.slice(rev))]; }
+  snapshot() { const m = new Map(this.parent.snapshot()); for (const [k, v] of this.writes) v === GONE ? m.delete(k) : m.set(k, v); return m; }
+  *[Symbol.iterator]() { for (const [k, v] of this.snapshot()) yield [k, v]; }
+  // Replays the writes onto the parent in order, so parent.rev advances by exactly this.rev.
+  commit() { const before = this.parent.rev; for (const k of this.log) { const v = this.writes.get(k); v === GONE ? this.parent.delete(k) || this.parent.note(k) : this.parent.set(k, v); } return before; }
+}
+
 // ---------- sandbox limits ----------
 // Every layer runs in its own worker (Web Worker in browsers, worker_threads in Node), never on the
 // host's thread. A call that runs past its time limit gets its worker killed, and the host treats
@@ -94,20 +140,25 @@ function llpWorker(post, onMessage) {
   const te = new TextEncoder(), td = new TextDecoder();
   class LayerError extends Error {}
   let ex = null, mem = null, ctx = null, maxNodes = 10000, memCap = Infinity, logs = [];
+  // The worker keeps its own replica of host state. The host sends only the keys that changed since
+  // this worker's last call, so a call costs the same with 10 keys or a million.
+  let replica = new Map();
+  const sync = (s) => { if (!s) return; if (s.full) replica = s.full; for (const [k, v] of s.set ?? []) replica.set(k, v); for (const k of s.del ?? []) replica.delete(k); };
   const bytes = (p, l) => new Uint8Array(mem.buffer, p, l);
   const str = (p, l) => td.decode(bytes(p, l));
   const put = (s, p, cap) => { const b = te.encode(s); bytes(p, Math.min(b.length, cap)).set(b.subarray(0, cap)); return b.length; };
   const c = () => { if (!ctx) throw new LayerError("host call outside a host-initiated call"); return ctx; };
   const node = (n) => { const x = c(); if (++x.nodes > maxNodes) throw new LayerError(`UI exceeded ${maxNodes} nodes`); x.stack[x.stack.length - 1].c.push(n); return n; };
-  const write = (k, v) => { const x = c(); x.kv.set(k, v); x.writes.set(k, v); };
+  const write = (k, v) => { c().writes.set(k, v); };
+  const read = (k) => { const x = c(); return x.writes.has(k) ? x.writes.get(k) : replica.get(k); };
   const llp = {
     ui_begin: (p, l) => c().stack.push(node({ k: str(p, l), a: {}, c: [] })),
     ui_attr: (kp, kl, vp, vl) => { const s = c().stack; s[s.length - 1].a[str(kp, kl)] = str(vp, vl); },
     ui_text: (p, l) => { node({ k: "text", t: str(p, l) }); },
     ui_end: () => { const s = c().stack; if (s.length <= 1) throw new LayerError("ui_end without ui_begin"); s.pop(); },
-    kv_get_n: (kp, kl, def) => { const v = c().kv.get(str(kp, kl)); return typeof v === "number" ? v : def; },
+    kv_get_n: (kp, kl, def) => { const v = read(str(kp, kl)); return typeof v === "number" ? v : def; },
     kv_set_n: (kp, kl, v) => write(str(kp, kl), v),
-    kv_get_s: (kp, kl, bp, cap) => { const v = c().kv.get(str(kp, kl)); return put(v == null ? "" : String(v), bp, cap); },
+    kv_get_s: (kp, kl, bp, cap) => { const v = read(str(kp, kl)); return put(v == null ? "" : String(v), bp, cap); },
     kv_set_s: (kp, kl, vp, vl) => write(str(kp, kl), str(vp, vl)),
     ev_id: (bp, cap) => put(c().event?.id ?? "", bp, cap),
     ev_val: (bp, cap) => put(c().event?.value ?? "", bp, cap),
@@ -124,12 +175,16 @@ function llpWorker(post, onMessage) {
         const { instance } = await WebAssembly.instantiate(m.bytes, { llp, env });
         ex = instance.exports;
         if (!(ex.memory instanceof WebAssembly.Memory)) throw new LayerError("layer must export memory");
-        if (typeof ex.llp_view !== "function") throw new LayerError("layer must export llp_view");
+        if (!m.headless && typeof ex.llp_view !== "function") throw new LayerError("layer must export llp_view");
         mem = ex.memory;
-        post({ id, ok: true, schema: ex.llp_schema ? ex.llp_schema() : 0, hasMigrate: typeof ex.llp_migrate === "function", logs });
+        post({ id, ok: true, schema: ex.llp_schema ? ex.llp_schema() : 0, hasMigrate: typeof ex.llp_migrate === "function", hasView: typeof ex.llp_view === "function", logs });
+      } else if (op === "sync") {
+        sync(m.sync);
+        post({ id, ok: true, size: replica.size });
       } else if (op === "call") {
+        sync(m.sync);
         const root = { k: "root", a: {}, c: [] };
-        ctx = { kv: m.kv, stack: [root], event: m.event, effects: [], writes: new Map(), nodes: 0 };
+        ctx = { stack: [root], event: m.event, effects: [], writes: new Map(), nodes: 0 };
         try {
           ex[m.fn]?.(...m.args);
           if (ctx.stack.length !== 1) throw new LayerError(`unbalanced UI in ${m.fn}`);
@@ -217,26 +272,40 @@ class Sandbox {
   }
 }
 
+const PLACES = new Set(["client", "server", "any"]);
+export const placement = (manifest, slot) => manifest.hosts?.[slot] ?? "client";
+
 export class LiveHost {
-  constructor({ trustedKeys = [], capabilities = {}, onRender = () => {}, onLog = () => {}, maxPrev = 5, limits = {} } = {}) {
+  // role: "client" (default: UI, local state, device capabilities) or "server" (headless; runs the
+  // slots a manifest places on "server"; owns keys under shared/). See SPEC section 10.
+  constructor({ trustedKeys = [], capabilities = {}, onRender = () => {}, onLog = () => {}, maxPrev = 5, limits = {}, role = "client" } = {}) {
     this.trustedKeys = trustedKeys;      // publisher public keys (JWK)
     this.capabilities = capabilities;    // name -> async (arg, ctx) => string result
     this.onRender = onRender;
     this.onLog = onLog;
     this.maxPrev = maxPrev;
+    this.role = role;
     this.limits = { ...DEFAULT_LIMITS, ...limits };
-    this.kv = new Map();                 // host-owned state: survives every swap
+    this.kv = new Store();               // host-owned state: survives every swap
     this.blobs = new Map();              // content-addressed store: hash -> bytes
     this.slots = new Map();              // slot -> { hash, box, prev: [hash...] }
     this.version = 0;
     this.app = null;
+    this.manifest = null;
     this.history = [];
     this.spare = null;                   // a pre-spawned worker, so a swap doesn't wait for worker boot
     this.pool = [];                      // healthy workers freed by swaps, reused before the spare
     this.queue = Promise.resolve();      // apply / render / dispatch run one at a time, as they did when synchronous
   }
 
-  log(kind, msg, extra = {}) { const e = { t: Date.now(), kind, msg, ...extra }; this.history.push(e); this.onLog(e); }
+  // Code outside the host may assign a plain Map (e.g. state restored from disk); keep it a Store.
+  get kv() { return this._kv; }
+  set kv(m) { this._kv = m instanceof Store ? m : new Store(m); }
+
+  get headless() { return this.role === "server"; }
+  placedHere(manifest, slot) { const p = placement(manifest, slot); return p === this.role || p === "any"; }
+
+  log(kind, msg, extra = {}) { const e = { t: Date.now(), kind, msg, ...extra }; this.history.push(e); if (this.history.length > 5000) this.history.splice(0, 1000); this.onLog(e); }
   exclusive(fn) {
     this.pending = (this.pending ?? 0) + 1;
     const r = this.queue.then(fn).finally(() => { this.pending--; });
@@ -247,11 +316,12 @@ export class LiveHost {
   // ---------- layer instances (each in its own worker) ----------
   async load(slot, hash) {
     const inline = this.limits.isolation === "inline";
-    let box = this.pool.pop(); // a healthy worker freed by an earlier swap: no boot wait
+    let box = this.pool.pop(); // a healthy worker freed by an earlier swap: no boot wait (its state replica stays valid)
     if (!box) {
       const w = inline ? inlineWorker() : await (this.spare ?? spawnWorker(this.limits));
-      if (!inline) this.spare = spawnWorker(this.limits);
-      this.spare?.catch(() => {});
+      this.spare = null;
+      // a server with many tenants can't keep a spare worker per tenant
+      if (!inline && !this.headless) { this.spare = spawnWorker(this.limits); this.spare.catch(() => {}); }
       box = new Sandbox(w);
     }
     box.calls = 0; // the new module's first call gets the first-call budget
@@ -260,22 +330,49 @@ export class LiveHost {
     try {
       const pages = Math.floor(this.limits.memoryMb * 2 ** 20 / PAGE);
       const bytes = capMemory(this.blobs.get(hash), pages);
-      const r = await box.request({ op: "load", bytes, maxNodes: this.limits.uiNodes, memCap: pages * PAGE }, this.limits.loadMs);
+      const r = await box.request({ op: "load", bytes, maxNodes: this.limits.uiNodes, memCap: pages * PAGE, headless: this.headless }, this.limits.loadMs);
       this.flushLogs(slot, r.logs);
-      box.schema = r.schema; box.hasMigrate = r.hasMigrate;
+      box.schema = r.schema; box.hasMigrate = r.hasMigrate; box.hasView = r.hasView;
       return box;
     } catch (e) { box.kill(); this.flushLogs(slot, e.logs); throw e; }
   }
 
-  // Run one guest entry point against `kv`. Writes land in `kv` only if the call finishes cleanly.
-  async call(slot, box, fn, kv, event = null, ...args) {
+  // Bring a worker's replica of `kv` up to date: the changed keys ride along with the call, and only
+  // a worker that has never seen this store (or fell behind the change log) gets a full copy.
+  async syncFor(box, kv) {
+    const keys = box.src === kv ? kv.since(box.rev) : null;
+    if (keys) {
+      const set = [], del = [];
+      for (const k of keys) kv.has(k) ? set.push([k, kv.get(k)]) : del.push(k);
+      box.src = kv; box.rev = kv.rev;
+      return set.length || del.length ? { set, del } : null;
+    }
+    const full = kv.snapshot();
+    const r = await box.request({ op: "sync", sync: { full } }, this.limits.loadMs + Math.ceil(full.size / 1000)); // ~1 ms per 1000 keys to copy
+    box.src = kv; box.rev = kv.rev;
+    return null;
+  }
+
+  // Run one guest entry point against `kv`. With apply (the default) the writes land in `kv` only
+  // if the call finishes cleanly; with apply=false they are only returned.
+  async call(slot, box, fn, kv, event = null, args = [], { apply = true } = {}) {
     try {
+      const sync = await this.syncFor(box, kv);
       const ms = box.calls++ ? this.limits.callMs : Math.max(this.limits.callMs, this.limits.firstCallMs);
-      const r = await box.request({ op: "call", fn, args, kv, event }, ms);
+      const r = await box.request({ op: "call", fn, args, event, sync }, ms);
       this.flushLogs(slot, r.logs);
-      for (const [k, v] of r.writes) kv.set(k, v);
+      r.writes = this.filterWrites(slot, r.writes);
+      if (apply) for (const [k, v] of r.writes) kv.set(k, v);
       return r;
     } catch (e) { this.flushLogs(slot, e.logs); throw new LayerError(`${fn}: ${e.message}`); }
+  }
+  // "No key has two owners": on a client, shared/ is a read cache the server fills. A client layer
+  // can't write it (it sends a remote call instead), so such writes are dropped.
+  filterWrites(slot, writes) {
+    if (this.role !== "client") return writes;
+    const kept = writes.filter(([k]) => !k.startsWith("shared/"));
+    if (kept.length !== writes.length) this.log("error", `${slot}: wrote shared/ keys on a client; dropped (shared/ is owned by the server host)`, { slot });
+    return kept;
   }
   // A worker whose layer was swapped out cleanly is reused for the next load (its old instance is
   // dropped when the new module loads). Workers that failed or overran are always killed instead.
@@ -283,11 +380,11 @@ export class LiveHost {
   flushLogs(slot, logs) { for (const l of logs ?? []) this.log("layer", l, { slot }); }
 
   // ---------- applying a streamed manifest ----------
-  // manifest = { app, version, layers: { slotName: sha256 }, order: [slot...] }
+  // manifest = { app, version, layers: { slotName: sha256 }, order: [slot...], hosts?: { slot: "client"|"server"|"any" } }
   apply(manifest, sig, fetchBlob) { return this.exclusive(() => this.applyNow(manifest, sig, fetchBlob)); }
   async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
-    if (this.limits.isolation !== "inline") this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
+    if (!this.headless && this.limits.isolation !== "inline") this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
     if (this.trustedKeys.length) {
       let ok = false;
       for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k)) { ok = true; break; }
@@ -295,20 +392,23 @@ export class LiveHost {
     }
     if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app");
     if (manifest.version <= this.version) return this.reject(manifest, `stale version ${manifest.version} ≤ ${this.version}`);
+    for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`);
 
+    // The whole manifest is verified, but only the slots placed on this host are fetched and run.
+    const mine = Object.entries(manifest.layers).filter(([slot]) => this.placedHere(manifest, slot));
     // Fetch only what we don't have (content addressing).
-    const wanted = Object.values(manifest.layers).filter((h) => !this.blobs.has(h));
+    const wanted = [...new Set(mine.map(([, h]) => h))].filter((h) => !this.blobs.has(h));
     for (const h of wanted) {
       const bytes = await fetchBlob(h);
       if ((await sha256(bytes)) !== h) return this.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`);
       this.blobs.set(h, bytes);
     }
 
-    // Stage every changed slot in a shadow copy of state; commit all or nothing.
-    const shadowKv = new Map(this.kv);
+    // Stage every changed slot in a copy-on-write view of state; commit all or nothing.
+    const shadowKv = this.kv.fork();
     const staged = [];
     try {
-      for (const [slot, hash] of Object.entries(manifest.layers)) {
+      for (const [slot, hash] of mine) {
         if (this.slots.get(slot)?.hash === hash) continue;
         const box = await this.load(slot, hash);
         staged.push({ slot, hash, box });
@@ -316,10 +416,11 @@ export class LiveHost {
         const have = shadowKv.get(`__schema.${slot}`) ?? want;
         if (want !== have) {
           if (!box.hasMigrate) throw new LayerError(`${slot}: schema ${have}→${want} but no llp_migrate`);
-          await this.call(slot, box, "llp_migrate", shadowKv, null, have);
+          await this.call(slot, box, "llp_migrate", shadowKv, null, [have]);
         }
         shadowKv.set(`__schema.${slot}`, want);
-        await this.call(slot, box, "llp_view", shadowKv); // health check: must render cleanly against real state
+        // health check: must render cleanly against real state (a headless layer may have no view)
+        if (box.hasView) await this.call(slot, box, "llp_view", shadowKv, null, [], { apply: !this.headless });
       }
     } catch (e) {
       for (const s of staged) s.box.kill();
@@ -327,21 +428,29 @@ export class LiveHost {
     }
 
     // Atomic commit.
+    const prevVersion = this.version, prevManifest = this.manifest;
+    const base = shadowKv.commit();
+    for (const { box } of staged) if (box.src === shadowKv) { box.src = this.kv; box.rev = base + box.rev; }
     for (const { slot, hash, box } of staged) {
       const cur = this.slots.get(slot);
-      if (cur) this.recycle(cur.box); // previous versions are kept as hashes and re-instantiated only on revert
+      if (cur) this.retire(slot, cur, prevVersion); // previous versions are kept as hashes and re-instantiated only on revert
       this.slots.set(slot, { hash, box, prev: cur ? [cur.hash, ...cur.prev].slice(0, this.maxPrev) : [] });
     }
-    for (const s of [...this.slots.keys()]) if (!(s in manifest.layers)) { this.recycle(this.slots.get(s).box); this.slots.delete(s); }
-    this.order = manifest.order ?? Object.keys(manifest.layers);
-    this.kv = shadowKv;
+    const keep = new Set(mine.map(([slot]) => slot));
+    for (const s of [...this.slots.keys()]) if (!keep.has(s)) { this.retire(s, this.slots.get(s), prevVersion); this.slots.delete(s); }
+    this.order = (manifest.order ?? Object.keys(manifest.layers)).filter((s) => keep.has(s));
     this.app = manifest.app;
     this.version = manifest.version;
+    this.manifest = manifest;
+    this.committed(prevManifest, manifest);
     const ms = +(performance.now() - t0).toFixed(1);
     this.log("swap", `v${manifest.version} live — ${staged.length} layer(s) swapped in ${ms} ms`, { ms, version: manifest.version, swapped: staged.map((s) => s.slot) });
     await this.renderNow();
     return { ok: true, ms, version: manifest.version, swapped: staged.map((s) => s.slot) };
   }
+  // Hooks for the server host (overlap window). A client just stops the old worker.
+  retire(slot, cur, version) { this.recycle(cur.box); }
+  committed(prev, next) {}
 
   reject(manifest, reason) {
     this.log("reject", `v${manifest.version} rejected: ${reason}`, { version: manifest.version });
@@ -351,13 +460,14 @@ export class LiveHost {
   // ---------- running ----------
   render() { return this.exclusive(() => this.renderNow()); }
   async renderNow() {
+    if (this.headless) return [];
     const kv = this.kv;
     const views = await Promise.all((this.order ?? []).map(async (slot) => {
       for (;;) {
         const s = this.slots.get(slot);
         if (!s) return null;
-        const scratch = new Map(kv); // layers render in parallel; writes are merged in slot order below
-        try { const r = await this.call(slot, s.box, "llp_view", scratch); return { slot, tree: r.tree, writes: r.writes }; }
+        // layers render in parallel against the same state; writes are merged in slot order below
+        try { const r = await this.call(slot, s.box, "llp_view", kv, null, [], { apply: false }); return { slot, tree: r.tree, writes: r.writes }; }
         catch (e) { if (!(await this.revert(slot, e))) return { slot, error: e.message }; }
       }
     }));
@@ -373,13 +483,8 @@ export class LiveHost {
     const effects = await this.exclusive(async () => {
       const s = this.slots.get(slot);
       if (!s) return [];
-      const shadow = new Map(this.kv);
-      let r;
-      try { r = await this.call(slot, s.box, "llp_event", shadow, { id, value }); }
+      try { const r = await this.call(slot, s.box, "llp_event", this.kv, { id, value }); await this.renderNow(); return r.effects; }
       catch (e) { await this.revert(slot, e); await this.renderNow(); return []; }
-      for (const [k, v] of r.writes) this.kv.set(k, v);
-      await this.renderNow();
-      return r.effects;
     });
     for (const fx of effects) this.runCapability(slot, fx);
   }
@@ -388,7 +493,7 @@ export class LiveHost {
     const impl = this.capabilities[name];
     if (!impl) { this.log("cap", `capability "${name}" not granted`, { slot }); return this.dispatch(slot, `cap:${name}`, "error: not granted"); }
     try {
-      const result = await impl(arg, { slot });
+      const result = await impl(arg, { slot, host: this });
       if (result !== undefined) await this.dispatch(slot, `cap:${name}`, String(result));
     } catch (e) { await this.dispatch(slot, `cap:${name}`, "error: " + e.message); }
   }
@@ -418,7 +523,20 @@ export class LiveHost {
 
   // Inputs bound to state write straight into the host store (no layer call needed). If calls are
   // still queued, the write waits its turn, so "type A, click, type B, click" keeps its order.
-  setBound(key, value) { if (this.pending) this.exclusive(() => { this.kv.set(key, value); }); else this.kv.set(key, value); }
+  setBound(key, value) {
+    if (this.role === "client" && key.startsWith("shared/")) { this.log("error", `input bound to ${key}: shared/ is owned by the server host; dropped`); return; }
+    if (this.pending) this.exclusive(() => { this.kv.set(key, value); }); else this.kv.set(key, value);
+  }
+
+  // The server host's copy of shared/ keys arriving on a client (bypasses the client-side write rule).
+  applyShared({ set = [], del = [], full = false }) {
+    return this.exclusive(async () => {
+      if (full) { const keep = new Set(set.map(([k]) => k)); for (const k of [...this.kv.keys()]) if (k.startsWith("shared/") && !keep.has(k)) this.kv.delete(k); }
+      for (const [k, v] of set) if (k.startsWith("shared/")) this.kv.set(k, v);
+      for (const k of del) if (k.startsWith("shared/")) this.kv.delete(k);
+      await this.renderNow();
+    });
+  }
 
   // Stop every layer worker (lets a Node process exit at once; a browser tab doesn't need it).
   close() {
