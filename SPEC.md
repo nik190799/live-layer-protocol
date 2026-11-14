@@ -22,9 +22,10 @@ Ship code into a **running** application as a stream of small, signed, content-a
 3. **Signed, monotonic manifests.** Only manifests signed by a trusted publisher key, with a version greater than the running one, are accepted.
 4. **Verify before live.** A new layer is instantiated in a shadow copy of state, migrated, and rendered once. Only a clean result is committed.
 5. **All-or-nothing commits.** A manifest that changes several layers commits all of them or none.
-6. **Transactional events.** If a layer traps while handling an event, state is restored and the layer is reverted to its previous version.
+6. **Transactional events.** If a layer traps or breaks a sandbox limit while handling an event, nothing it wrote is kept and the layer is reverted to its previous version.
 7. **Capabilities are requested, never assumed.** Layers ask the host for effects (haptics, location, network…); the host decides and answers asynchronously.
 8. **Same layer, any host.** The client is the primary host: swap, shadow verification and rollback run on-device. The same layers and the same Live Host also run on server/edge nodes for work a client can't be trusted with or can't fit. Where a slot runs is a manifest field, not a rewrite.
+9. **Layers never run on the host's thread.** Each layer instance runs in its own worker with a time limit and a memory cap (section 6.1). A layer that breaks a limit is killed and treated like a trap.
 
 ## 4. Manifest
 
@@ -60,6 +61,22 @@ Transport-agnostic JSON messages. Reference transports: WebSocket (Node host), B
 5. For each changed slot: instantiate → if `llp_schema()` differs from the stored schema, call `llp_migrate(from)` → call `llp_view()` and require a balanced UI tree.
 6. Any failure → reject the whole manifest; the running version is untouched.
 7. Commit: swap slot pointers, keep previous versions for revert, replace state with the shadow store, render.
+
+### 6.1 Sandbox limits
+
+Every layer instance lives in its own worker (a Web Worker in browsers, `worker_threads` in Node). The host keeps one worker booted in advance so a swap doesn't wait for one to start. Each call sends the worker a copy of the state; the worker returns the UI tree, requested effects and the keys it wrote. The host applies those writes only if the call finished cleanly.
+
+| Limit | Default | Enforced by | On breach |
+|---|---|---|---|
+| Time per call (`llp_view`, `llp_event`, `llp_migrate`) | 100 ms | host timer; the worker is terminated | killed, writes dropped, slot reverted (at swap time: manifest rejected) |
+| Time to load (compile, instantiate, start function, `llp_schema`) | 2000 ms | host timer | killed, manifest rejected |
+| Linear memory | 32 MB | the host rewrites the module's memory maximum before instantiating, so `memory.grow` fails and the layer traps | trap, writes dropped, slot reverted |
+| UI nodes per call | 10,000 | worker-side ABI | trap |
+| Worker JS heap | 64 MB | `resourceLimits` (Node only) | killed |
+
+When a slot has no previous version to revert to, the host restarts the same version in a fresh worker, so it keeps working for inputs that don't hit the bad path. A page whose security policy blocks workers falls back to running layers on its own thread, logs an error saying so, and loses time-limit protection.
+
+Measured on Node 22 (Linux, 2 slots): a warm swap takes about 3 ms (was about 1 ms on the main thread); the first swap takes about 40 ms because it boots the first worker; a two-layer render takes 0.13 ms (was 0.015 ms); an event with its re-render takes 0.23 ms (was 0.02 ms); each worker costs about 12 MB of memory. A stuck layer is cut off about 105 ms after the call starts, and the host's thread never stalls more than a few milliseconds while it runs. Chromium gives the same results (`test/browser.mjs`).
 
 ## 7. Layer ABI (v0)
 
@@ -145,7 +162,10 @@ Both host types subscribe to the same signed, monotonic stream. An optional `hos
 
 ## 11. Known gaps in v0 (deliberately deferred)
 
-- Layers run on the host's main thread; an infinite loop can freeze the host. Fix: run layers in a worker with a time budget.
+- Time limits are wall-clock, not CPU time, so a heavily loaded device can cut off a slow but honest layer. Limits are per host, not per layer or per manifest.
+- A layer can still grow the shared state without bound across many events; there is no quota on state size.
+- A killed layer's `log` output for that call is lost.
+- Memory blowup is caught by the engine's memory cap, so the error says `unreachable` (plus the memory reading) rather than naming an out-of-memory condition.
 - No inter-layer calls; layers communicate only through shared state.
 - Single publisher key; no key rotation, delegation, or threshold signing (TUF roles cover this).
 - Bespoke JSON-free ABI instead of the WebAssembly Component Model/WIT; the ABI is designed to map onto WIT once browser support lands.
@@ -154,6 +174,6 @@ Both host types subscribe to the same signed, monotonic stream. An optional `hos
   - No commit spans client and server. Whether "server first + overlap window" is enough, and how long the window must be, is unverified.
   - Shadow-copying a large multi-user store to verify a migration (section 6, step 4) may not scale; how to verify server migrations is open.
   - Offline clients: whether `shared/` writes queue or fail, and how conflicts resolve, is undecided.
-  - Server nodes run many tenants' layers. They need per-tenant sandboxes and CPU/memory limits; the main-thread gap above is worse there.
+  - Server nodes run many tenants' layers. The per-layer worker sandbox (section 6.1) is the starting point, but one worker per layer per tenant won't scale, and wall-clock limits are unfair under shared load.
   - The `remote` capability's wire format, auth (which user is calling) and error model are not specified.
   - Key custody for the authority role (HSM, rotation) is not specified.

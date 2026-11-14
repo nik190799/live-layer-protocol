@@ -75,7 +75,7 @@ check("A13 runtime trap → state restored + auto-revert to previous layer", r.o
   host.history.filter((e) => e.kind === "rollback").map((e) => e.msg).join("; "));
 
 // 5. Throughput: how fast is one render?
-const t0 = performance.now(); for (let i = 0; i < 1000; i++) host.render(); const per = (performance.now() - t0) / 1000;
+const t0 = performance.now(); for (let i = 0; i < 1000; i++) await host.render(); const per = (performance.now() - t0) / 1000;
 check("A14 full render of both layers is fast enough for 60 fps", per < 16, `${per.toFixed(3)} ms per render`);
 
 const failed = results.filter((x) => !x.pass).length;

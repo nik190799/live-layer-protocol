@@ -13,8 +13,10 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `sdk/assemblyscript/llp.ts`, `sdk/c/llp.h` | Layer SDKs |
 | `layers/tasks-as/app.ts` | Main layer (AssemblyScript) |
 | `layers/stats-c/stats.c` | Footer layer (C) |
-| `layers/variants/` | v2 (migration), broken, and crashing variants used in tests |
+| `layers/variants/` | v2 (migration), broken, crashing, and hanging/memory-hogging variants used in tests |
 | `test/run.mjs` | The 14 core proof tests (in-process) |
+| `test/sandbox.mjs` | 15 tests of the worker sandbox: infinite loops in view, event and migrate, memory blowup, UI flood |
+| `test/browser.mjs` | The sandbox in real Chromium (needs Playwright; not part of `npm test`) |
 | `test/service.mjs` | 10 tests of the per-device service |
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
@@ -29,7 +31,7 @@ Requires Node 22+. The compiled layers are committed in `build/`, so no compiler
 git clone https://github.com/nik190799/live-layer-protocol.git
 cd live-layer-protocol
 npm install
-npm test          # 34 checks: core rules, the service, and live over-the-wire attacks
+npm test          # 49 checks: core rules, the layer sandbox, the service, and live over-the-wire attacks
 ```
 
 ### Watch it update live
@@ -69,7 +71,7 @@ Needs clang with the wasm32 target for the C layer. `npm run build` does the sam
 npm install
 npx asc layers/tasks-as/app.ts -o build/tasks.wasm -O3
 clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c
-for v in tasks_v2 tasks_broken tasks_trap; do npx asc layers/variants/$v.ts -o build/$v.wasm -O3; done
+for v in tasks_v2 tasks_broken tasks_trap tasks_hang tasks_hang_migrate; do npx asc layers/variants/$v.ts -o build/$v.wasm -O3; done
 
 node test/run.mjs                       # 14 proof tests
 
@@ -99,4 +101,4 @@ Tests: `node test/service.mjs` (10 checks: install, two live clients, capability
 
 ## Status
 
-The run-anywhere hosts design (SPEC section 10) is not implemented or tested. Known v0 gaps are listed in SPEC section 11; the biggest is that a layer stuck in an infinite loop can still freeze its host.
+The run-anywhere hosts design (SPEC section 10) is not implemented or tested. Known v0 gaps are listed in SPEC section 11. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host.

@@ -149,7 +149,7 @@ wss.on("connection", (ws, req) => {
         return bytes;
       });
       if (r.ok) writeAtomic(join(appDir(name), "current.json"), JSON.stringify({ manifest: m.manifest, sig: m.sig }));
-      else if (!app.host.version) { apps.delete(name); }
+      else if (!app.host.version) { app.host.close(); apps.delete(name); }
       send(r.ok ? { t: "ack", version: r.version, ms: r.ms, swapped: r.swapped } : { t: "nack", version: r.version, reason: r.reason });
     });
     return;

@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "description": "Live Layer Protocol: stream signed WebAssembly layers into a running app, no CI/CD",
   "scripts": {
-    "test": "node test/run.mjs && node test/service.mjs && node test/live-e2e.mjs",
+    "test": "node test/run.mjs && node test/sandbox.mjs && node test/service.mjs && node test/live-e2e.mjs",
     "test:core": "node test/run.mjs",
+    "test:sandbox": "node test/sandbox.mjs",
     "test:service": "node test/service.mjs",
     "test:live": "node test/live-e2e.mjs",
-    "build": "asc layers/tasks-as/app.ts -o build/tasks.wasm -O3 && clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c && asc layers/variants/tasks_v2.ts -o build/tasks_v2.wasm -O3 && asc layers/variants/tasks_broken.ts -o build/tasks_broken.wasm -O3 && asc layers/variants/tasks_trap.ts -o build/tasks_trap.wasm -O3"
+    "test:browser": "node test/browser.mjs",
+    "build": "asc layers/tasks-as/app.ts -o build/tasks.wasm -O3 && clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c && asc layers/variants/tasks_v2.ts -o build/tasks_v2.wasm -O3 && asc layers/variants/tasks_broken.ts -o build/tasks_broken.wasm -O3 && asc layers/variants/tasks_trap.ts -o build/tasks_trap.wasm -O3 && asc layers/variants/tasks_hang.ts -o build/tasks_hang.wasm -O3 && asc layers/variants/tasks_hang_migrate.ts -o build/tasks_hang_migrate.wasm -O3"
   },
   "keywords": [],
   "author": "",

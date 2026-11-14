@@ -252,76 +252,239 @@ async function verifyManifest(manifest, sig, jwk) {
 
 class LayerError extends Error {}
 
+// ---------- sandbox limits ----------
+// Every layer runs in its own worker (Web Worker in browsers, worker_threads in Node), never on the
+// host's thread. A call that runs past its time limit gets its worker killed, and the host treats
+// that like a trap: the call's state changes are dropped and the slot is reverted.
+const DEFAULT_LIMITS = {
+  callMs: 100,     // wall-clock budget for one llp_view / llp_event / llp_migrate call
+  loadMs: 2000,    // budget for compile + instantiate (+ start function) + llp_schema
+  memoryMb: 32,    // cap on the layer's linear memory, written into the module's memory limits
+  uiNodes: 10000,  // cap on UI nodes one call may emit (bounds the worker's JS heap in every engine)
+  heapMb: 64,      // worker JS heap cap (Node only; browsers have no per-worker heap limit)
+};
+
+// Rewrite the module's own memory declaration so memory.grow fails past the cap. The engine
+// enforces it, so a runaway allocation traps inside the layer instead of eating host memory.
+const PAGE = 65536;
+function readU32(b, o) { let r = 0, sh = 0, x; do { x = b[o++]; r |= (x & 0x7f) << sh; sh += 7; } while (x & 0x80); return [r >>> 0, o]; }
+function u32(n) { const out = []; do { let x = n & 0x7f; n >>>= 7; if (n) x |= 0x80; out.push(x); } while (n); return out; }
+function capMemory(bytes, maxPages) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  if (b.length < 8 || b[0] !== 0 || b[1] !== 0x61 || b[2] !== 0x73 || b[3] !== 0x6d) throw new LayerError("not a wasm module");
+  let o = 8;
+  while (o < b.length) {
+    const id = b[o];
+    const [size, body] = readU32(b, o + 1);
+    if (id === 5) {
+      let [count, p] = readU32(b, body);
+      const mems = [];
+      for (let i = 0; i < count; i++) {
+        const flags = b[p++];
+        if (flags & 0x04) throw new LayerError("64-bit memory is not supported");
+        let min, max = Infinity; [min, p] = readU32(b, p);
+        if (flags & 0x01) [max, p] = readU32(b, p);
+        if (min > maxPages) throw new LayerError(`layer asks for ${Math.round(min * PAGE / 2 ** 20)} MB of memory at start; limit is ${Math.round(maxPages * PAGE / 2 ** 20)} MB`);
+        mems.push([(flags & 0x02) | 0x01, ...u32(min), ...u32(Math.min(max, maxPages))]);
+      }
+      const content = [...u32(count), ...mems.flat()];
+      const out = new Uint8Array(b.length - (body + size - o) + 1 + u32(content.length).length + content.length);
+      out.set(b.subarray(0, o), 0);
+      let w = o; out[w++] = 5;
+      for (const x of u32(content.length)) out[w++] = x;
+      out.set(content, w); w += content.length;
+      out.set(b.subarray(body + size), w);
+      return out;
+    }
+    o = body + size;
+  }
+  return b; // no memory defined here: instantiation fails later ("layer must export memory")
+}
+
+// ---------- the worker: owns one layer instance and the guest ABI ----------
+// Self-contained (it's stringified into the worker), so it must not use anything from this file.
+function llpWorker(post, onMessage) {
+  const te = new TextEncoder(), td = new TextDecoder();
+  class LayerError extends Error {}
+  let ex = null, mem = null, ctx = null, maxNodes = 10000, memCap = Infinity, logs = [];
+  const bytes = (p, l) => new Uint8Array(mem.buffer, p, l);
+  const str = (p, l) => td.decode(bytes(p, l));
+  const put = (s, p, cap) => { const b = te.encode(s); bytes(p, Math.min(b.length, cap)).set(b.subarray(0, cap)); return b.length; };
+  const c = () => { if (!ctx) throw new LayerError("host call outside a host-initiated call"); return ctx; };
+  const node = (n) => { const x = c(); if (++x.nodes > maxNodes) throw new LayerError(`UI exceeded ${maxNodes} nodes`); x.stack[x.stack.length - 1].c.push(n); return n; };
+  const write = (k, v) => { const x = c(); x.kv.set(k, v); x.writes.set(k, v); };
+  const llp = {
+    ui_begin: (p, l) => c().stack.push(node({ k: str(p, l), a: {}, c: [] })),
+    ui_attr: (kp, kl, vp, vl) => { const s = c().stack; s[s.length - 1].a[str(kp, kl)] = str(vp, vl); },
+    ui_text: (p, l) => { node({ k: "text", t: str(p, l) }); },
+    ui_end: () => { const s = c().stack; if (s.length <= 1) throw new LayerError("ui_end without ui_begin"); s.pop(); },
+    kv_get_n: (kp, kl, def) => { const v = c().kv.get(str(kp, kl)); return typeof v === "number" ? v : def; },
+    kv_set_n: (kp, kl, v) => write(str(kp, kl), v),
+    kv_get_s: (kp, kl, bp, cap) => { const v = c().kv.get(str(kp, kl)); return put(v == null ? "" : String(v), bp, cap); },
+    kv_set_s: (kp, kl, vp, vl) => write(str(kp, kl), str(vp, vl)),
+    ev_id: (bp, cap) => put(c().event?.id ?? "", bp, cap),
+    ev_val: (bp, cap) => put(c().event?.value ?? "", bp, cap),
+    cap: (np, nl, ap, al) => { const x = c(); x.effects.push({ name: str(np, nl), arg: str(ap, al) }); return x.effects.length; },
+    log: (p, l) => { if (logs.length < 100) logs.push(str(p, l)); },
+    now: () => Date.now(),
+  };
+  const env = { abort: () => { throw new LayerError("layer aborted"); }, seed: () => Math.random() * 2 ** 32 };
+  onMessage(async ({ id, op, ...m }) => {
+    logs = [];
+    try {
+      if (op === "load") {
+        maxNodes = m.maxNodes; memCap = m.memCap;
+        const { instance } = await WebAssembly.instantiate(m.bytes, { llp, env });
+        ex = instance.exports;
+        if (!(ex.memory instanceof WebAssembly.Memory)) throw new LayerError("layer must export memory");
+        if (typeof ex.llp_view !== "function") throw new LayerError("layer must export llp_view");
+        mem = ex.memory;
+        post({ id, ok: true, schema: ex.llp_schema ? ex.llp_schema() : 0, hasMigrate: typeof ex.llp_migrate === "function", logs });
+      } else if (op === "call") {
+        const root = { k: "root", a: {}, c: [] };
+        ctx = { kv: m.kv, stack: [root], event: m.event, effects: [], writes: new Map(), nodes: 0 };
+        try {
+          ex[m.fn]?.(...m.args);
+          if (ctx.stack.length !== 1) throw new LayerError(`unbalanced UI in ${m.fn}`);
+          post({ id, ok: true, tree: root.c.length === 1 ? root.c[0] : root, effects: ctx.effects, writes: [...ctx.writes], logs });
+        } finally { ctx = null; }
+      }
+    } catch (e) {
+      let error = e?.message ?? String(e);
+      const used = mem ? mem.buffer.byteLength : 0; // memory.grow can't be hooked, so report when a trap happens near the cap
+      if (used >= memCap * 0.9) error += ` (layer memory at ${Math.round(used / 2 ** 20)} of ${Math.round(memCap / 2 ** 20)} MB limit)`;
+      post({ id, ok: false, error, logs });
+    }
+  });
+  post({ ready: true });
+}
+const WORKER_SRC = `(${llpWorker})(
+  typeof self !== "undefined" && typeof self.postMessage === "function" ? (m) => self.postMessage(m) : (m) => require("node:worker_threads").parentPort.postMessage(m),
+  typeof self !== "undefined" && typeof self.postMessage === "function" ? (f) => { self.onmessage = (e) => f(e.data); } : (f) => require("node:worker_threads").parentPort.on("message", f));`;
+
+// Last resort for pages whose security policy forbids workers: same code and messages, but on the
+// page's own thread, so time limits can't preempt it. The host logs loudly when this happens.
+function inlineWorker() {
+  let onMsg = () => {}, handler = () => {};
+  llpWorker((m) => onMsg(m), (f) => { handler = f; });
+  return { inline: true, post: (m) => queueMicrotask(() => handler(structuredClone(m))), listen: (f) => { onMsg = f; }, kill: () => { handler = () => {}; onMsg = () => {}; } };
+}
+
+let browserUrl = null, workersBlocked = false;
+async function spawnWorker(limits) {
+  if (typeof globalThis.Worker === "function") { // browsers, Deno, Bun
+    if (workersBlocked) return inlineWorker();
+    let w;
+    try {
+      browserUrl ??= URL.createObjectURL(new Blob([WORKER_SRC], { type: "text/javascript" }));
+      w = new Worker(browserUrl);
+    } catch { workersBlocked = true; return inlineWorker(); }
+    // A security policy can also block the worker after construction; it then fails without ever saying ready.
+    const started = await new Promise((res) => {
+      const t = setTimeout(() => res(false), 5000);
+      w.onmessage = (e) => { clearTimeout(t); res(e.data?.ready === true); };
+      w.onerror = (e) => { e.preventDefault?.(); clearTimeout(t); res(false); };
+    });
+    if (!started) { w.terminate(); workersBlocked = true; return inlineWorker(); }
+    return {
+      post: (m) => w.postMessage(m),
+      listen: (onMsg, onDie) => { w.onmessage = (e) => onMsg(e.data); w.onerror = (e) => { e.preventDefault?.(); onDie(e.message || "worker crashed"); }; },
+      kill: () => w.terminate(),
+    };
+  }
+  const { Worker: NodeWorker } = await import("node:worker_threads");
+  const w = new NodeWorker(WORKER_SRC, { eval: true, resourceLimits: { maxOldGenerationSizeMb: limits.heapMb, maxYoungGenerationSizeMb: Math.max(4, limits.heapMb >> 3) } });
+  w.unref(); // an idle layer must not keep the process alive; the call timer does while a call is in flight
+  return {
+    post: (m) => w.postMessage(m),
+    listen: (onMsg, onDie) => {
+      w.on("message", onMsg); w.on("error", (e) => onDie(e.code === "ERR_WORKER_OUT_OF_MEMORY" ? "worker ran out of memory" : e.message)); w.on("exit", () => onDie("worker exited"));
+      w.unref(); // adding a message listener re-refs the worker
+    },
+    kill: () => w.terminate(),
+  };
+}
+
+// Host-side handle on one layer's worker. One request at a time; a request that overruns kills it.
+class Sandbox {
+  constructor(w) {
+    this.w = w; this.dead = null; this.pending = null; this.seq = 0;
+    w.listen((m) => { const p = this.pending; if (p && m.id === p.id) { this.pending = null; clearTimeout(p.timer); p.resolve(m); } },
+             (why) => this.die(why));
+  }
+  die(why) {
+    if (this.dead) return;
+    this.dead = why; this.w.kill();
+    const p = this.pending; this.pending = null;
+    if (p) { clearTimeout(p.timer); p.reject(new LayerError(why)); }
+  }
+  kill() { this.die("killed by host"); }
+  request(msg, ms, transfer) {
+    if (this.dead) return Promise.reject(new LayerError(`layer is dead (${this.dead})`));
+    return new Promise((resolve, reject) => {
+      const id = ++this.seq;
+      const timer = setTimeout(() => this.die(`ran past its ${ms} ms time limit; worker killed`), ms);
+      this.pending = { id, resolve, reject, timer };
+      this.w.post({ id, ...msg }, transfer);
+    }).then((r) => { if (!r.ok) throw Object.assign(new LayerError(r.error), { logs: r.logs }); return r; });
+  }
+}
+
 class LiveHost {
-  constructor({ trustedKeys = [], capabilities = {}, onRender = () => {}, onLog = () => {}, maxPrev = 5 } = {}) {
+  constructor({ trustedKeys = [], capabilities = {}, onRender = () => {}, onLog = () => {}, maxPrev = 5, limits = {} } = {}) {
     this.trustedKeys = trustedKeys;      // publisher public keys (JWK)
     this.capabilities = capabilities;    // name -> async (arg, ctx) => string result
     this.onRender = onRender;
     this.onLog = onLog;
     this.maxPrev = maxPrev;
+    this.limits = { ...DEFAULT_LIMITS, ...limits };
     this.kv = new Map();                 // host-owned state: survives every swap
     this.blobs = new Map();              // content-addressed store: hash -> bytes
-    this.slots = new Map();              // slot -> { hash, exports, prev: [] }
+    this.slots = new Map();              // slot -> { hash, box, prev: [hash...] }
     this.version = 0;
     this.app = null;
-    this.ctx = null;                     // per-call context: { kv, tree stack, event }
     this.history = [];
+    this.spare = null;                   // a pre-spawned worker, so a swap doesn't wait for worker boot
+    this.queue = Promise.resolve();      // apply / render / dispatch run one at a time, as they did when synchronous
   }
 
   log(kind, msg, extra = {}) { const e = { t: Date.now(), kind, msg, ...extra }; this.history.push(e); this.onLog(e); }
+  exclusive(fn) { const r = this.queue.then(fn); this.queue = r.catch(() => {}); return r; }
 
-  // ---------- the guest ABI ----------
-  imports(slot) {
-    const host = this;
-    let mem = null;
-    const bytes = (p, l) => new Uint8Array(mem.buffer, p, l);
-    const str = (p, l) => td.decode(bytes(p, l));
-    const put = (s, p, cap) => { const b = te.encode(s); bytes(p, Math.min(b.length, cap)).set(b.subarray(0, cap)); return b.length; };
-    const c = () => { if (!host.ctx) throw new LayerError("host call outside a host-initiated call"); return host.ctx; };
-    const llp = {
-      ui_begin: (p, l) => { const n = { k: str(p, l), a: {}, c: [] }; const s = c().stack; s[s.length - 1].c.push(n); s.push(n); },
-      ui_attr: (kp, kl, vp, vl) => { const s = c().stack; s[s.length - 1].a[str(kp, kl)] = str(vp, vl); },
-      ui_text: (p, l) => { const s = c().stack; s[s.length - 1].c.push({ k: "text", t: str(p, l) }); },
-      ui_end: () => { const s = c().stack; if (s.length <= 1) throw new LayerError("ui_end without ui_begin"); s.pop(); },
-      kv_get_n: (kp, kl, def) => { const v = c().kv.get(str(kp, kl)); return typeof v === "number" ? v : def; },
-      kv_set_n: (kp, kl, v) => { c().kv.set(str(kp, kl), v); },
-      kv_get_s: (kp, kl, bp, cap) => { const v = c().kv.get(str(kp, kl)); return put(v == null ? "" : String(v), bp, cap); },
-      kv_set_s: (kp, kl, vp, vl) => { c().kv.set(str(kp, kl), str(vp, vl)); },
-      ev_id: (bp, cap) => put(c().event?.id ?? "", bp, cap),
-      ev_val: (bp, cap) => put(c().event?.value ?? "", bp, cap),
-      cap: (np, nl, ap, al) => { const x = c(); x.effects.push({ name: str(np, nl), arg: str(ap, al) }); return x.effects.length; },
-      log: (p, l) => host.log("layer", str(p, l), { slot }),
-      now: () => Date.now(),
-    };
-    const env = { abort: () => { throw new LayerError("layer aborted"); }, seed: () => Math.random() * 2 ** 32 };
-    return { imports: { llp, env }, bind: (m) => { mem = m; } };
-  }
-
-  async instantiate(slot, bytes) {
-    const { imports, bind } = this.imports(slot);
-    const { instance } = await WebAssembly.instantiate(bytes, imports);
-    const ex = instance.exports;
-    if (!(ex.memory instanceof WebAssembly.Memory)) throw new LayerError("layer must export memory");
-    if (typeof ex.llp_view !== "function") throw new LayerError("layer must export llp_view");
-    bind(ex.memory);
-    return ex;
-  }
-
-  // Run one guest entry point inside a context; collects UI tree + effects.
-  call(exports, fn, kv, event, ...args) {
-    const root = { k: "root", a: {}, c: [] };
-    this.ctx = { kv, stack: [root], event, effects: [] };
+  // ---------- layer instances (each in its own worker) ----------
+  async load(slot, hash) {
+    const w = await (this.spare ?? spawnWorker(this.limits));
+    this.spare = spawnWorker(this.limits);
+    this.spare.catch(() => {});
+    const box = new Sandbox(w);
+    if (w.inline && !this.warnedInline) { this.warnedInline = true; this.log("error", "this page blocks workers, so layers run on the page's thread and a layer stuck in a loop can freeze it"); }
     try {
-      exports[fn]?.(...args);
-      if (this.ctx.stack.length !== 1) throw new LayerError(`unbalanced UI in ${fn}`);
-      return { tree: root.c.length === 1 ? root.c[0] : root, effects: this.ctx.effects };
-    } finally { this.ctx = null; }
+      const pages = Math.floor(this.limits.memoryMb * 2 ** 20 / PAGE);
+      const bytes = capMemory(this.blobs.get(hash), pages);
+      const r = await box.request({ op: "load", bytes, maxNodes: this.limits.uiNodes, memCap: pages * PAGE }, this.limits.loadMs);
+      this.flushLogs(slot, r.logs);
+      box.schema = r.schema; box.hasMigrate = r.hasMigrate;
+      return box;
+    } catch (e) { box.kill(); this.flushLogs(slot, e.logs); throw e; }
   }
+
+  // Run one guest entry point against `kv`. Writes land in `kv` only if the call finishes cleanly.
+  async call(slot, box, fn, kv, event = null, ...args) {
+    try {
+      const r = await box.request({ op: "call", fn, args, kv, event }, this.limits.callMs);
+      this.flushLogs(slot, r.logs);
+      for (const [k, v] of r.writes) kv.set(k, v);
+      return r;
+    } catch (e) { this.flushLogs(slot, e.logs); throw new LayerError(`${fn}: ${e.message}`); }
+  }
+  flushLogs(slot, logs) { for (const l of logs ?? []) this.log("layer", l, { slot }); }
 
   // ---------- applying a streamed manifest ----------
   // manifest = { app, version, layers: { slotName: sha256 }, order: [slot...] }
-  async apply(manifest, sig, fetchBlob) {
+  apply(manifest, sig, fetchBlob) { return this.exclusive(() => this.applyNow(manifest, sig, fetchBlob)); }
+  async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
+    this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
     if (this.trustedKeys.length) {
       let ok = false;
       for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k)) { ok = true; break; }
@@ -344,35 +507,36 @@ class LiveHost {
     try {
       for (const [slot, hash] of Object.entries(manifest.layers)) {
         if (this.slots.get(slot)?.hash === hash) continue;
-        const ex = await this.instantiate(slot, this.blobs.get(hash));
-        const want = ex.llp_schema ? ex.llp_schema() : 0;
+        const box = await this.load(slot, hash);
+        staged.push({ slot, hash, box });
+        const want = box.schema;
         const have = shadowKv.get(`__schema.${slot}`) ?? want;
         if (want !== have) {
-          if (!ex.llp_migrate) throw new LayerError(`${slot}: schema ${have}→${want} but no llp_migrate`);
-          this.call(ex, "llp_migrate", shadowKv, null, have);
+          if (!box.hasMigrate) throw new LayerError(`${slot}: schema ${have}→${want} but no llp_migrate`);
+          await this.call(slot, box, "llp_migrate", shadowKv, null, have);
         }
         shadowKv.set(`__schema.${slot}`, want);
-        this.call(ex, "llp_view", shadowKv, null); // health check: must render cleanly against real state
-        staged.push({ slot, hash, ex });
+        await this.call(slot, box, "llp_view", shadowKv); // health check: must render cleanly against real state
       }
     } catch (e) {
+      for (const s of staged) s.box.kill();
       return this.reject(manifest, e.message);
     }
 
     // Atomic commit.
-    for (const { slot, hash, ex } of staged) {
+    for (const { slot, hash, box } of staged) {
       const cur = this.slots.get(slot);
-      const prev = cur ? [{ hash: cur.hash, exports: cur.exports }, ...cur.prev].slice(0, this.maxPrev) : [];
-      this.slots.set(slot, { hash, exports: ex, prev });
+      cur?.box.kill(); // previous versions are kept as hashes and re-instantiated only on revert
+      this.slots.set(slot, { hash, box, prev: cur ? [cur.hash, ...cur.prev].slice(0, this.maxPrev) : [] });
     }
-    for (const s of [...this.slots.keys()]) if (!(s in manifest.layers)) this.slots.delete(s);
+    for (const s of [...this.slots.keys()]) if (!(s in manifest.layers)) { this.slots.get(s).box.kill(); this.slots.delete(s); }
     this.order = manifest.order ?? Object.keys(manifest.layers);
     this.kv = shadowKv;
     this.app = manifest.app;
     this.version = manifest.version;
     const ms = +(performance.now() - t0).toFixed(1);
     this.log("swap", `v${manifest.version} live — ${staged.length} layer(s) swapped in ${ms} ms`, { ms, version: manifest.version, swapped: staged.map((s) => s.slot) });
-    this.render();
+    await this.renderNow();
     return { ok: true, ms, version: manifest.version, swapped: staged.map((s) => s.slot) };
   }
 
@@ -382,27 +546,38 @@ class LiveHost {
   }
 
   // ---------- running ----------
-  render() {
+  render() { return this.exclusive(() => this.renderNow()); }
+  async renderNow() {
+    const kv = this.kv;
+    const views = await Promise.all((this.order ?? []).map(async (slot) => {
+      for (;;) {
+        const s = this.slots.get(slot);
+        if (!s) return null;
+        const scratch = new Map(kv); // layers render in parallel; writes are merged in slot order below
+        try { const r = await this.call(slot, s.box, "llp_view", scratch); return { slot, tree: r.tree, writes: r.writes }; }
+        catch (e) { if (!(await this.revert(slot, e))) return { slot, error: e.message }; }
+      }
+    }));
     const out = [];
-    for (const slot of this.order ?? []) {
-      const s = this.slots.get(slot);
-      if (!s) continue;
-      try { out.push({ slot, tree: this.call(s.exports, "llp_view", this.kv, null).tree }); }
-      catch (e) { if (this.revert(slot, e)) return this.render(); out.push({ slot, error: e.message }); }
-    }
+    for (const v of views) if (v) { for (const [k, x] of v.writes ?? []) this.kv.set(k, x); out.push(v.error ? { slot: v.slot, error: v.error } : { slot: v.slot, tree: v.tree }); }
     this.onRender(out);
     return out;
   }
 
-  // Events are transactions: if the layer traps, state is restored and the layer reverted.
+  // Events are transactions: the layer's writes apply only if it finishes; if it traps or runs
+  // past its limits, nothing it wrote is kept and the layer is reverted.
   async dispatch(slot, id, value = "") {
-    const s = this.slots.get(slot);
-    if (!s) return;
-    const snapshot = new Map(this.kv);
-    let effects = [];
-    try { effects = this.call(s.exports, "llp_event", this.kv, { id, value }).effects; }
-    catch (e) { this.kv = snapshot; this.revert(slot, e); return this.render(); }
-    this.render();
+    const effects = await this.exclusive(async () => {
+      const s = this.slots.get(slot);
+      if (!s) return [];
+      const shadow = new Map(this.kv);
+      let r;
+      try { r = await this.call(slot, s.box, "llp_event", shadow, { id, value }); }
+      catch (e) { await this.revert(slot, e); await this.renderNow(); return []; }
+      for (const [k, v] of r.writes) this.kv.set(k, v);
+      await this.renderNow();
+      return r.effects;
+    });
     for (const fx of effects) this.runCapability(slot, fx);
   }
 
@@ -415,17 +590,38 @@ class LiveHost {
     } catch (e) { await this.dispatch(slot, `cap:${name}`, "error: " + e.message); }
   }
 
-  revert(slot, err) {
+  async revert(slot, err) {
     const s = this.slots.get(slot);
-    if (!s || !s.prev.length) { this.log("error", `${slot}: ${err.message} (no previous version to revert to)`, { slot }); return false; }
-    const [back, ...rest] = s.prev;
-    this.slots.set(slot, { hash: back.hash, exports: back.exports, prev: rest });
-    this.log("rollback", `${slot} trapped (${err.message}) — reverted to ${back.hash.slice(0, 8)}`, { slot });
-    return true;
+    if (!s) return false;
+    s.box.kill();
+    let prev = s.prev;
+    while (prev.length) {
+      const [back, ...rest] = prev;
+      try {
+        const box = await this.load(slot, back);
+        this.slots.set(slot, { hash: back, box, prev: rest });
+        this.log("rollback", `${slot} failed (${err.message}) — reverted to ${back.slice(0, 8)}`, { slot });
+        return true;
+      } catch { prev = rest; }
+    }
+    // Nothing to fall back to: restart the same version in a fresh worker, so the slot still works
+    // for inputs that don't hit the bad path. This call's output is an error either way.
+    let box = s.box;
+    try { box = await this.load(slot, s.hash); } catch {}
+    this.slots.set(slot, { hash: s.hash, box, prev: [] });
+    this.log("error", `${slot}: ${err.message} (no previous version to revert to)`, { slot });
+    return false;
   }
 
   // Inputs bound to state write straight into the host store (no layer call needed).
   setBound(key, value) { this.kv.set(key, value); }
+
+  // Stop every layer worker (lets a Node process exit at once; a browser tab doesn't need it).
+  close() {
+    for (const s of this.slots.values()) s.box.kill();
+    this.spare?.then((w) => w.kill(), () => {});
+    this.spare = null;
+  }
 }
 
 
