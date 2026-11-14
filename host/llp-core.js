@@ -87,10 +87,14 @@ class Overlay {
 // that like a trap: the call's state changes are dropped and the slot is reverted.
 export const DEFAULT_LIMITS = {
   callMs: 100,     // wall-clock budget for one llp_view / llp_event / llp_migrate call
+  firstCallMs: 1000, // budget for the first call in a fresh worker, which also pays lazy compilation
+                     // and is the one most likely to land while the device is busy (a swap, app start)
   loadMs: 2000,    // budget for compile + instantiate (+ start function) + llp_schema
   memoryMb: 32,    // cap on the layer's linear memory, written into the module's memory limits
   uiNodes: 10000,  // cap on UI nodes one call may emit (bounds the worker's JS heap in every engine)
   heapMb: 64,      // worker JS heap cap (Node only; browsers have no per-worker heap limit)
+  isolation: "worker", // "inline" runs layers on the host's thread with no time limit: only for trusted
+                        // code, e.g. simulating many devices in one process (bench/sim-hosts.mjs)
 };
 
 // Rewrite the module's own memory declaration so memory.grow fails past the cap. The engine
@@ -246,7 +250,7 @@ async function spawnWorker(limits) {
 // Host-side handle on one layer's worker. One request at a time; a request that overruns kills it.
 class Sandbox {
   constructor(w) {
-    this.w = w; this.dead = null; this.pending = null; this.seq = 0;
+    this.w = w; this.dead = null; this.pending = null; this.seq = 0; this.calls = 0;
     w.listen((m) => { const p = this.pending; if (p && m.id === p.id) { this.pending = null; clearTimeout(p.timer); p.resolve(m); } },
              (why) => this.die(why));
   }
@@ -290,6 +294,7 @@ export class LiveHost {
     this.manifest = null;
     this.history = [];
     this.spare = null;                   // a pre-spawned worker, so a swap doesn't wait for worker boot
+    this.pool = [];                      // healthy workers freed by swaps, reused before the spare
     this.queue = Promise.resolve();      // apply / render / dispatch run one at a time, as they did when synchronous
   }
 
@@ -310,11 +315,18 @@ export class LiveHost {
 
   // ---------- layer instances (each in its own worker) ----------
   async load(slot, hash) {
-    const w = await (this.spare ?? spawnWorker(this.limits));
-    this.spare = null;
-    if (!this.headless) { this.spare = spawnWorker(this.limits); this.spare.catch(() => {}); } // a server with many tenants can't keep a spare worker per tenant
-    const box = new Sandbox(w);
-    if (w.inline && !this.warnedInline) { this.warnedInline = true; this.log("error", "this page blocks workers, so layers run on the page's thread and a layer stuck in a loop can freeze it"); }
+    const inline = this.limits.isolation === "inline";
+    let box = this.pool.pop(); // a healthy worker freed by an earlier swap: no boot wait (its state replica stays valid)
+    if (!box) {
+      const w = inline ? inlineWorker() : await (this.spare ?? spawnWorker(this.limits));
+      this.spare = null;
+      // a server with many tenants can't keep a spare worker per tenant
+      if (!inline && !this.headless) { this.spare = spawnWorker(this.limits); this.spare.catch(() => {}); }
+      box = new Sandbox(w);
+    }
+    box.calls = 0; // the new module's first call gets the first-call budget
+    const w = box.w;
+    if (w.inline && !inline && !this.warnedInline) { this.warnedInline = true; this.log("error", "this page blocks workers, so layers run on the page's thread and a layer stuck in a loop can freeze it"); }
     try {
       const pages = Math.floor(this.limits.memoryMb * 2 ** 20 / PAGE);
       const bytes = capMemory(this.blobs.get(hash), pages);
@@ -346,7 +358,8 @@ export class LiveHost {
   async call(slot, box, fn, kv, event = null, args = [], { apply = true } = {}) {
     try {
       const sync = await this.syncFor(box, kv);
-      const r = await box.request({ op: "call", fn, args, event, sync }, this.limits.callMs);
+      const ms = box.calls++ ? this.limits.callMs : Math.max(this.limits.callMs, this.limits.firstCallMs);
+      const r = await box.request({ op: "call", fn, args, event, sync }, ms);
       this.flushLogs(slot, r.logs);
       r.writes = this.filterWrites(slot, r.writes);
       if (apply) for (const [k, v] of r.writes) kv.set(k, v);
@@ -361,6 +374,9 @@ export class LiveHost {
     if (kept.length !== writes.length) this.log("error", `${slot}: wrote shared/ keys on a client; dropped (shared/ is owned by the server host)`, { slot });
     return kept;
   }
+  // A worker whose layer was swapped out cleanly is reused for the next load (its old instance is
+  // dropped when the new module loads). Workers that failed or overran are always killed instead.
+  recycle(box) { if (!box.dead && !box.pending && this.pool.length < 2) this.pool.push(box); else box.kill(); }
   flushLogs(slot, logs) { for (const l of logs ?? []) this.log("layer", l, { slot }); }
 
   // ---------- applying a streamed manifest ----------
@@ -368,7 +384,7 @@ export class LiveHost {
   apply(manifest, sig, fetchBlob) { return this.exclusive(() => this.applyNow(manifest, sig, fetchBlob)); }
   async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
-    if (!this.headless) this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
+    if (!this.headless && this.limits.isolation !== "inline") this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
     if (this.trustedKeys.length) {
       let ok = false;
       for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k)) { ok = true; break; }
@@ -433,7 +449,7 @@ export class LiveHost {
     return { ok: true, ms, version: manifest.version, swapped: staged.map((s) => s.slot) };
   }
   // Hooks for the server host (overlap window). A client just stops the old worker.
-  retire(slot, cur, version) { cur.box.kill(); }
+  retire(slot, cur, version) { this.recycle(cur.box); }
   committed(prev, next) {}
 
   reject(manifest, reason) {
@@ -525,6 +541,7 @@ export class LiveHost {
   // Stop every layer worker (lets a Node process exit at once; a browser tab doesn't need it).
   close() {
     for (const s of this.slots.values()) s.box.kill();
+    for (const b of this.pool.splice(0)) b.kill();
     this.spare?.then((w) => w.kill(), () => {});
     this.spare = null;
   }

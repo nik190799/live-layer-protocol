@@ -28,7 +28,7 @@ const lastLog = (kind) => host.history.filter((e) => e.kind === kind).at(-1)?.ms
 let maxGap = 0, last = performance.now();
 const ticker = setInterval(() => { const n = performance.now(); maxGap = Math.max(maxGap, n - last); last = n; }, 2);
 const timed = async (fn) => { maxGap = 0; last = performance.now(); const t = performance.now(); const r = await fn(); return { r, ms: +(performance.now() - t).toFixed(1), gap: +maxGap.toFixed(1) }; };
-const limit = DEFAULT_LIMITS.callMs;
+const limit = DEFAULT_LIMITS.callMs, first = DEFAULT_LIMITS.firstCallMs;
 
 // Baseline: v2 + C footer, with some state.
 await ship(v2);
@@ -39,7 +39,7 @@ check("S0 baseline app is live", screen().includes("Tasks v2") && screen().inclu
 // 1. Infinite loop in llp_view during the pre-swap health check.
 host.setBound("draft", "hang view");
 let t = await timed(() => ship(hang));
-check("S1 infinite loop in view (at swap time) is killed and the swap refused", !t.r.ok && /time limit/.test(t.r.reason) && t.ms < limit + 200, `${t.r.reason}; refused in ${t.ms} ms`);
+check("S1 infinite loop in view (at swap time) is killed and the swap refused", !t.r.ok && /time limit/.test(t.r.reason) && t.ms < first + 200, `${t.r.reason}; refused in ${t.ms} ms`);
 check("S2 host thread kept running during the loop", t.gap < 50, `longest stall ${t.gap} ms`);
 host.setBound("draft", ""); await host.render();
 check("S3 old version still live after the refused swap", screen().includes("Tasks v2") && host.slots.get("main").hash === v2, screen());
@@ -114,6 +114,13 @@ swaps.sort((a, b) => a - b);
 const t0 = performance.now(); for (let i = 0; i < 500; i++) await host.render(); const per = (performance.now() - t0) / 500;
 check("S13 swap stays fast in a worker (median of 10 swaps < 25 ms)", swaps[5] < 25, `median ${swaps[5]} ms, max ${swaps.at(-1)} ms`);
 check("S14 two-layer render stays well under a 60 fps frame", per < 4, `${per.toFixed(3)} ms per render`);
+
+// 10. Opt-in inline mode (for simulating many devices in one process) still runs the app.
+const inl = new LiveHost({ limits: { isolation: "inline" }, onRender: (t) => { lastTree = t; } });
+m = { app: "inline", version: 1, layers: { main: v2, footer: stats }, order: ["main", "footer"] };
+r = await inl.apply(m, "", fetchBlob);
+inl.setBound("draft", "Inline task"); await inl.dispatch("main", "add");
+check("S15 inline isolation (opt-in, no time limit) runs layers without workers", r.ok && screen().includes("Inline task") && inl.spare === null, screen());
 
 clearInterval(ticker);
 host.close(); solo.close();

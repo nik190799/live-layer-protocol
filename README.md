@@ -15,7 +15,7 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `layers/stats-c/stats.c` | Footer layer (C) |
 | `layers/variants/` | v2 (migration), broken, crashing, and hanging/memory-hogging variants used in tests |
 | `test/run.mjs` | The 14 core proof tests (in-process) |
-| `test/sandbox.mjs` | 16 tests of the worker sandbox: infinite loops in view, event and migrate, memory blowup, UI flood, input ordering |
+| `test/sandbox.mjs` | 17 tests of the worker sandbox: infinite loops in view, event and migrate, memory blowup, UI flood, input ordering, inline mode |
 | `test/browser.mjs` | The sandbox in real Chromium (needs Playwright; not part of `npm test`) |
 | `test/service.mjs` | 10 tests of the per-device service |
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
@@ -37,7 +37,7 @@ Requires Node 22+. The compiled layers are committed in `build/`, so no compiler
 git clone https://github.com/nik190799/live-layer-protocol.git
 cd live-layer-protocol
 npm install
-npm test          # 120 checks: core rules, the layer sandbox, the service, live over-the-wire attacks, the AI loop, fleet, and server/client hosts
+npm test          # 121 checks: core rules, the layer sandbox, the service, live over-the-wire attacks, the AI loop, fleet, and server/client hosts
 ```
 
 ### Watch it update live
@@ -180,4 +180,4 @@ Tests: `npm run test:hosts` (30 checks). What each open question in the spec tur
 
 ## Status
 
-The run-anywhere hosts (SPEC section 10) are implemented and tested: see below and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11.
+The run-anywhere hosts (SPEC section 10) are implemented and tested: see the section above and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11.
