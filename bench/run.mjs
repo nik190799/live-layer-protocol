@@ -54,13 +54,15 @@ if (want("pipeline")) {
   let kept = true;
 
   // migration swap (v1 -> v2, schema 1 -> 2) on a fresh host with real user state, each trial
+  // each trial uses its own build, so V8's in-process compiled-module cache never gives a free compile
   const v2 = await put(v2bytes);
   for (let i = 0; i < N; i++) {
+    const v2i = await put(withNonce(v2bytes, `m${i}`));
     const host = new LiveHost({ trustedKeys: [pub.publicJwk] });
     let m = { app: "demo.tasks", version: 1, layers: { main: tasks, footer: statsL }, order: ["main", "footer"] };
     await host.apply(m, await signManifest(m, pub.privateKey), fetchBlob);
     for (const t of ["Buy milk", "Call mom"]) { host.setBound("draft", t); await host.dispatch("main", "add"); }
-    m = { ...m, version: 2, layers: { main: v2, footer: statsL } };
+    m = { ...m, version: 2, layers: { main: v2i, footer: statsL } };
     const sig = await signManifest(m, pub.privateKey);
     const [ms, r] = await timeA(() => host.apply(m, sig, fetchBlob));
     if (!r.ok || host.kv.get("tasks.n") !== 2 || host.kv.get("migrated.from") !== 1) kept = false;
@@ -85,7 +87,7 @@ if (want("pipeline")) {
     // host side, stage by stage (verify measured on its own; apply repeats it internally)
     const [tv] = await timeA(async () => { const k = await crypto.subtle.importKey("jwk", pub.publicJwk, ECDSA, false, ["verify"]); return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, k, b64.dec(sig), new TextEncoder().encode(canonical(m))); });
     st.verify.push(tv);
-    const [ti] = await timeA(() => host.instantiate("bench", bytes)); st.instantiateOnly.push(ti);
+    const [ti] = await timeA(() => host.instantiate("bench", withNonce(v2bytes, `i${i}`))); st.instantiateOnly.push(ti);
     const [ta, r] = await timeA(() => host.apply(m, sig, fetchBlob));
     if (!r.ok || host.kv.get("tasks.n") !== 2) kept = false;
     st.swapPlain.push(ta);
@@ -128,6 +130,7 @@ async function fleet(N, trials) {
     writeFileSync(live, bytes); // the "ship": a compiled layer lands on disk
     await waitAll(() => events.filter((e) => e.ver > lastVer).length === N);
     const got = events.filter((e) => e.ver > lastVer);
+    if (new Set(got.map((e) => e.ver)).size !== 1) throw new Error(`fleet ${N}: hosts went live on different versions in one trial`);
     lastVer = got[0].ver;
     const ts = got.map((e) => e.t - t0).sort((a, b) => a - b);
     rows.push({ first: ts[0], p50host: ts[Math.floor(N / 2)], all: ts[N - 1], applyMs: stats(got.map((e) => e.ms)).p50, stateKept: got.every((e) => e.tasks === 2) });
