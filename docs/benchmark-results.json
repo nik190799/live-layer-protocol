@@ -1,0 +1,283 @@
+{
+  "machine": {
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cores": 4,
+    "memGB": 16,
+    "os": "linux 6.18.44-fc-v470",
+    "node": "v22.23.4"
+  },
+  "at": "2026-11-14T07:20:52.654Z",
+  "compile": {
+    "assemblyscript_tasks_v2_O3": {
+      "n": 10,
+      "p50": 1521.828,
+      "p95": 1853.159,
+      "min": 1248.404,
+      "max": 1853.159
+    },
+    "c_stats_O2": {
+      "n": 10,
+      "p50": 141.27,
+      "p95": 168.588,
+      "min": 96.556,
+      "max": 168.588
+    },
+    "sameBytesAsCommitted": true
+  },
+  "pipeline": {
+    "trials": 200,
+    "stateKeptEveryTrial": true,
+    "ms": {
+      "hash": {
+        "n": 200,
+        "p50": 0.162,
+        "p95": 0.293,
+        "min": 0.089,
+        "max": 4.592
+      },
+      "sign": {
+        "n": 200,
+        "p50": 0.218,
+        "p95": 0.357,
+        "min": 0.107,
+        "max": 1.322
+      },
+      "verify": {
+        "n": 200,
+        "p50": 0.411,
+        "p95": 0.565,
+        "min": 0.251,
+        "max": 1.476
+      },
+      "publish": {
+        "n": 200,
+        "p50": 0.401,
+        "p95": 0.633,
+        "min": 0.206,
+        "max": 4.939
+      },
+      "swapPlain": {
+        "n": 200,
+        "p50": 1.361,
+        "p95": 2.451,
+        "min": 0.926,
+        "max": 7.907
+      },
+      "swapMigrate": {
+        "n": 200,
+        "p50": 1.301,
+        "p95": 2.158,
+        "min": 0.735,
+        "max": 10.136
+      },
+      "instantiateOnly": {
+        "n": 200,
+        "p50": 0.687,
+        "p95": 0.928,
+        "min": 0.456,
+        "max": 8.328
+      }
+    },
+    "note": "swap* = host.apply(): verify signature + fetch from local store + integrity hash + instantiate + migrate (if any) + shadow render on a copy of state + atomic commit + render"
+  },
+  "fleet": {
+    "note": "Includes the publisher's fixed 80 ms file-watch debounce (tools/publisher.mjs). All hosts share this machine's CPU, so large fleets are CPU-bound here; real devices verify in parallel.",
+    "runs": [
+      {
+        "hosts": 1,
+        "trials": 30,
+        "processes": 1,
+        "nacks": 0,
+        "stateKeptOnEveryHost": true,
+        "migrationTrial_ms": {
+          "first": 89.9,
+          "all": 89.9
+        },
+        "fileSavedTo_firstHostLive": {
+          "n": 30,
+          "p50": 86.933,
+          "p95": 90.616,
+          "min": 85.34,
+          "max": 90.653
+        },
+        "fileSavedTo_medianHostLive": {
+          "n": 30,
+          "p50": 86.933,
+          "p95": 90.616,
+          "min": 85.34,
+          "max": 90.653
+        },
+        "fileSavedTo_allHostsLive": {
+          "n": 30,
+          "p50": 86.933,
+          "p95": 90.616,
+          "min": 85.34,
+          "max": 90.653
+        },
+        "perHostApply_p50ms": {
+          "n": 30,
+          "p50": 3.4,
+          "p95": 4.4,
+          "min": 2.7,
+          "max": 4.8
+        }
+      },
+      {
+        "hosts": 100,
+        "trials": 20,
+        "processes": 4,
+        "nacks": 0,
+        "stateKeptOnEveryHost": true,
+        "migrationTrial_ms": {
+          "first": 112.1,
+          "all": 154.2
+        },
+        "fileSavedTo_firstHostLive": {
+          "n": 20,
+          "p50": 99.523,
+          "p95": 113.757,
+          "min": 93.423,
+          "max": 115.042
+        },
+        "fileSavedTo_medianHostLive": {
+          "n": 20,
+          "p50": 119.942,
+          "p95": 138.919,
+          "min": 106.985,
+          "max": 149.63
+        },
+        "fileSavedTo_allHostsLive": {
+          "n": 20,
+          "p50": 145.029,
+          "p95": 161.954,
+          "min": 120.857,
+          "max": 164.955
+        },
+        "perHostApply_p50ms": {
+          "n": 20,
+          "p50": 29.6,
+          "p95": 40.2,
+          "min": 19.8,
+          "max": 59.9
+        }
+      },
+      {
+        "hosts": 1000,
+        "trials": 10,
+        "processes": 4,
+        "nacks": 0,
+        "stateKeptOnEveryHost": true,
+        "migrationTrial_ms": {
+          "first": 140.7,
+          "all": 511.1
+        },
+        "fileSavedTo_firstHostLive": {
+          "n": 10,
+          "p50": 169.452,
+          "p95": 215.568,
+          "min": 137.806,
+          "max": 215.568
+        },
+        "fileSavedTo_medianHostLive": {
+          "n": 10,
+          "p50": 350.948,
+          "p95": 391.849,
+          "min": 329.254,
+          "max": 391.849
+        },
+        "fileSavedTo_allHostsLive": {
+          "n": 10,
+          "p50": 554.479,
+          "p95": 597.147,
+          "min": 513.032,
+          "max": 597.147
+        },
+        "perHostApply_p50ms": {
+          "n": 10,
+          "p50": 200.8,
+          "p95": 239.4,
+          "min": 177.6,
+          "max": 239.4
+        }
+      }
+    ]
+  },
+  "rollback": {
+    "trials": 200,
+    "revertedToGoodVersionAndStateRestoredEveryTrial": true,
+    "ms": {
+      "normalEvent": {
+        "n": 200,
+        "p50": 0.052,
+        "p95": 0.101,
+        "min": 0.037,
+        "max": 0.331
+      },
+      "trapDetectRestoreRevert": {
+        "n": 200,
+        "p50": 0.144,
+        "p95": 0.289,
+        "min": 0.113,
+        "max": 0.679
+      },
+      "refuseBrokenBeforeLive": {
+        "n": 200,
+        "p50": 1.461,
+        "p95": 2.42,
+        "min": 1.061,
+        "max": 12.896
+      }
+    },
+    "note": "trapDetectRestoreRevert = the user action that hits the crash: trap caught, state snapshot restored, slot reverted to previous version, UI re-rendered. refuseBrokenBeforeLive includes signing the bad manifest."
+  },
+  "baseline": {
+    "processRestart": {
+      "trials": 20,
+      "stateLostEveryTrial": true,
+      "ms": {
+        "restartToHealthy": {
+          "n": 20,
+          "p50": 40.88,
+          "p95": 57.164,
+          "min": 32.342,
+          "max": 86.87
+        }
+      }
+    },
+    "docker": {
+      "trials": 10,
+      "stateLostEveryTrial": true,
+      "downtime_note": "app is unreachable from stopOld until healthy",
+      "ms": {
+        "build": {
+          "n": 10,
+          "p50": 320.562,
+          "p95": 385.645,
+          "min": 256.868,
+          "max": 385.645
+        },
+        "stopOld": {
+          "n": 10,
+          "p50": 213.025,
+          "p95": 232.373,
+          "min": 195.097,
+          "max": 232.373
+        },
+        "startToHealthy": {
+          "n": 10,
+          "p50": 234.792,
+          "p95": 265.117,
+          "min": 216.294,
+          "max": 265.117
+        },
+        "total": {
+          "n": 10,
+          "p50": 767.014,
+          "p95": 832.461,
+          "min": 722.505,
+          "max": 832.461
+        }
+      }
+    }
+  }
+}
