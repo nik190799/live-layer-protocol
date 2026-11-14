@@ -19,6 +19,12 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/browser.mjs` | The sandbox in real Chromium (needs Playwright; not part of `npm test`) |
 | `test/service.mjs` | 10 tests of the per-device service |
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
+| `tools/ai-publish.mjs`, `ai/` | AI publishing loop: prompt, model writes a layer, compile, shadow check, approve, stream |
+| `test/ai-loop.mjs` | 12 tests of the AI loop over real processes |
+| `host/fleet.js`, `tools/fleet.mjs`, `host/fleet-host.mjs` | Fleet operations: channels, percentage rollouts, convergence, key rotation (SPEC section 12) |
+| `test/fleet.mjs` | 28 fleet tests: a 48-host simulation plus 20 hosts in 4 real processes over WebSocket |
+| `host/server-host.mjs`, `host/remote-client.mjs`, `layers/server/` | Server/edge host and client link: shared data, secrets, heavy compute (SPEC section 10) |
+| `test/hosts.mjs`, `bench/hosts.mjs` | 30 checks of server and client hosts over real WebSockets; scale measurements (`docs/HOSTS.md`) |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
 | `service/`, `install/`, `Install-LiveLayer.cmd` | Per-device service, CLI and installers |
 | `web/` | Browser Live Host page (`build.py` inlines the core and layers into `index.html`) |
@@ -31,7 +37,7 @@ Requires Node 22+. The compiled layers are committed in `build/`, so no compiler
 git clone https://github.com/nik190799/live-layer-protocol.git
 cd live-layer-protocol
 npm install
-npm test          # 50 checks: core rules, the layer sandbox, the service, and live over-the-wire attacks
+npm test          # 120 checks: core rules, the layer sandbox, the service, live over-the-wire attacks, the AI loop, fleet, and server/client hosts
 ```
 
 ### Watch it update live
@@ -99,6 +105,79 @@ Then, from any terminal: `llp push <app> <slot>=<file.wasm> ...`, `llp watch ...
 
 Tests: `node test/service.mjs` (10 checks: install, two live clients, capability effects, refusal, origin blocking, restart with state restored, swap after restart, status).
 
+## AI publishing loop (prompt to live app)
+
+Type what you want changed. A model writes the new layer, and the loop compiles it to Wasm, shadow-checks it, shows you a diff and a preview, and after you answer `y` signs it and streams it into the running app. State is kept. If the layer fails to compile, traps or hangs in the shadow check, or the running host refuses it, the error goes back to the model and it tries again (up to `--max-attempts`, default 4).
+
+Terminal 1, the AI publisher (it is also the stream server):
+
+```bash
+export ANTHROPIC_API_KEY=...        # from console.anthropic.com; never commit it
+npm run ai                          # uses Claude when a key is set; model: claude-opus-5-5 (override with LLP_MODEL, LLP_EFFORT)
+```
+
+Terminal 2, the running app:
+
+```bash
+node host/node-host.mjs ws://localhost:7700 keys/publisher.pub.json
+set draft Buy milk
+click main add
+```
+
+Then in terminal 1 at `ai>` type a change, for example `show how many tasks are left and add a clear all button`. At `approve?` answer `y` to ship, `n` to discard, or `r <what to change>` to send it back.
+
+Without a key it uses a stub backend that ignores the prompt and returns two canned replies (the first has a compile error), so you can see the whole loop work: `npm run ai`.
+
+What the shadow check does, before you are asked: it starts the live layers in a worker thread, uses the current layer like a person would to build real-looking state, swaps the candidate in with the real host core, clicks every button it draws, and stops it after 3 seconds if it hangs. The running host still does its own check against its real state when the layer arrives.
+
+Files: the live source is `.ai-live/current.ts`, every attempt is in `.ai-live/attempts/`, and each change is logged with its timings in `.ai-live/history.jsonl`. Restarting resumes from `current.ts` (use `--fresh` to start over).
+
+## Fleet: channels, staged rollouts, key rotation
+
+Terminal 1, the fleet controller (keys go to `keys/fleet/`; the root key would live offline in production):
+
+```bash
+node tools/fleet.mjs --port 7720
+```
+
+Terminal 2, five hosts on the stable channel, each keeping its accepted keyring on disk:
+
+```bash
+node host/fleet-host.mjs ws://localhost:7720 keys/fleet/keyring.pinned.json --id laptop --channel stable --count 5 --trust-dir .fleet-trust
+```
+
+Then type into terminal 1:
+
+```
+publish stable 100 main=build/tasks.wasm footer=build/stats.wasm   # everyone
+publish stable 20 main=build/tasks_v2.wasm footer=build/stats.wasm # 20% of hosts
+percent stable 100                                                 # widen
+status stable                                                      # convergence report
+rollout stable 10,50,100 main=build/tasks_broken.wasm footer=build/stats.wasm  # halts at 10% and rolls back
+rotate                                                             # new release key, fleet-wide
+```
+
+Tests: `npm run test:fleet` (28 checks). In a 48-host simulation: share accuracy over 10,000 ids, channel isolation, exact cohorts, widening only adds hosts, user state kept, offline hosts catching up, a broken release halted at 10% and a crashing one at 20% (caught by host revert reports while traffic runs), release and 2-of-3 root rotation, a revoked key refused, and a late host walking the whole keyring chain. Over the wire: 20 hosts in 4 processes, a 30% rollout, a dead process shown as offline, rotation, restart catch-up, and a rogue stream using the revoked key. `FLEET_HOSTS=300 npm run test:fleet` runs the simulation with 300 hosts.
+
+## Server and edge hosts (same layers, any host)
+
+One signed stream feeds both kinds of host. A manifest's `hosts` field puts each slot on the client or the server; the server host runs the server slots, owns everything under `shared/`, keeps secrets in its capability providers, and relays the stream to clients only after it has committed each version. Client layers call server layers with `cap("remote", "sync:add Buy milk")`.
+
+```js
+import { ServerHost, tokenAuth } from "./host/server-host.mjs";
+const auth = tokenAuth(process.env.SESSION_SECRET);
+const server = new ServerHost({ trustedKeys: [publisherPublicJwk], authenticate: auth.authenticate,
+  capabilities: { charge: (arg) => callPaymentApi(arg, process.env.PAY_KEY) } });
+await server.listen(7800);
+server.subscribe("ws://localhost:7700", "demo.shared");   // follow the publisher
+
+// on a client
+import { connectServer } from "./host/remote-client.mjs";
+connectServer(host, "ws://server:7800", { app: "demo.shared", token: auth.issue("alice", "demo.shared") });
+```
+
+Tests: `npm run test:hosts` (30 checks). What each open question in the spec turned out to be, with numbers: `docs/HOSTS.md`.
+
 ## Status
 
-The run-anywhere hosts design (SPEC section 10) is not implemented or tested. Known v0 gaps are listed in SPEC section 11. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host.
+The run-anywhere hosts (SPEC section 10) are implemented and tested: see below and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11.

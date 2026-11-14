@@ -47,9 +47,12 @@ export function tokenAuth(secret) {
 
 // ---------- one tenant's Live Host, with the overlap window ----------
 export class ServerLiveHost extends LiveHost {
-  constructor({ windowMs = 30000, ...opts } = {}) {
+  constructor({ windowMs = 30000, idleMs = 120000, ...opts } = {}) {
     super({ ...opts, role: "server", limits: { ...SERVER_LIMITS, ...opts.limits } });
     this.windowMs = windowMs;
+    // A worker costs ~10 MB, so idle tenants' workers are stopped and restarted on their next call.
+    this.idleMs = idleMs;
+    if (idleMs > 0) { this.sweeper = setInterval(() => this.evictIdle(), Math.max(50, idleMs / 4)); this.sweeper.unref?.(); }
     this.served = new Map();   // version -> { layers: {slot: hash} placed here, until: ms }
     this.retired = new Map();  // `${slot}@${hash}` -> box, kept alive for the window
   }
@@ -71,6 +74,19 @@ export class ServerLiveHost extends LiveHost {
     this.served.set(next.version, { layers, until: Infinity });
     for (const [v, s] of this.served) if (s.until < now) this.served.delete(v);
   }
+
+  evictIdle(now = Date.now()) {
+    if (this.pending) return 0;
+    let n = 0;
+    for (const [slot, s] of this.slots) if (!s.box.dead && now - (s.box.used ??= now) >= this.idleMs) { s.box.die("idle"); s.evicted = true; n++; }
+    if (n) this.log("evict", `stopped ${n} idle layer worker(s)`);
+    return n;
+  }
+  async wake(slot) {
+    const s = this.slots.get(slot);
+    if (s?.evicted && s.box.dead) { s.box = await this.load(slot, s.hash); s.evicted = false; this.log("wake", `${slot} restarted after idling`, { slot }); }
+  }
+  close() { clearInterval(this.sweeper); super.close(); }
 
   // Which worker answers a call made by a client running `version`.
   resolve(slot, version) {
@@ -100,7 +116,9 @@ export class ServerLiveHost extends LiveHost {
       if (hop >= MAX_HOPS) throw new RemoteError("layer_failed", `more than ${MAX_HOPS} capability round trips`);
       const ev = events.shift();
       const r = await this.exclusive(async () => {
+        if (version === this.version) await this.wake(slot);
         const box = this.resolve(slot, version);
+        box.used = Date.now();
         const current = this.slots.get(slot)?.box === box;
         let res;
         try { res = await this.call(slot, box, "llp_event", this.kv, ev, [], { apply: false }); }
@@ -129,9 +147,9 @@ export class ServerLiveHost extends LiveHost {
 
 // ---------- the server host: tenants, upstream, clients ----------
 export class ServerHost {
-  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, limits = {}, maxPending = 256, onLog = () => {} } = {}) {
+  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, idleMs = 120000, limits = {}, maxPending = 256, onLog = () => {} } = {}) {
     if (!authenticate) throw new Error("server host needs an authenticate(token, app) function");
-    Object.assign(this, { trustedKeys, capabilities, authenticate, windowMs, limits, maxPending, onLog });
+    Object.assign(this, { trustedKeys, capabilities, authenticate, windowMs, idleMs, limits, maxPending, onLog });
     this.tenants = new Map();
     this.upstreams = [];
   }
@@ -140,7 +158,7 @@ export class ServerHost {
     let t = this.tenants.get(app);
     if (t) return t;
     const host = new ServerLiveHost({
-      trustedKeys: this.trustedKeys, windowMs: this.windowMs, limits: this.limits,
+      trustedKeys: this.trustedKeys, windowMs: this.windowMs, idleMs: this.idleMs, limits: this.limits,
       // Providers get the tenant name so secrets can be scoped per app; layers only see results.
       capabilities: Object.fromEntries(Object.entries(this.capabilities).map(([n, f]) => [n, (arg, ctx) => f(arg, { ...ctx, app })])),
       onLog: (e) => this.onLog({ app, ...e }),

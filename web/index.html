@@ -528,8 +528,8 @@ class LiveHost {
   // ---------- layer instances (each in its own worker) ----------
   async load(slot, hash) {
     const w = await (this.spare ?? spawnWorker(this.limits));
-    this.spare = spawnWorker(this.limits);
-    this.spare.catch(() => {});
+    this.spare = null;
+    if (!this.headless) { this.spare = spawnWorker(this.limits); this.spare.catch(() => {}); } // a server with many tenants can't keep a spare worker per tenant
     const box = new Sandbox(w);
     if (w.inline && !this.warnedInline) { this.warnedInline = true; this.log("error", "this page blocks workers, so layers run on the page's thread and a layer stuck in a loop can freeze it"); }
     try {
@@ -585,7 +585,7 @@ class LiveHost {
   apply(manifest, sig, fetchBlob) { return this.exclusive(() => this.applyNow(manifest, sig, fetchBlob)); }
   async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
-    this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
+    if (!this.headless) this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
     if (this.trustedKeys.length) {
       let ok = false;
       for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k)) { ok = true; break; }

@@ -92,7 +92,7 @@ check("H2 the server host holds only public keys (no signing key on a node that 
 
 // ---------- shared data, multi-user ----------
 alice.host.setBound("draft", "Ship the server host"); await alice.host.dispatch("main", "add");
-let ok = await until(() => bob.screen.includes("Ship the server host (alice)"));
+let ok = await until(() => bob.screen.includes("Ship the server host (alice)") && alice.host.kv.get("last") === "0");
 check("H3 alice's write reaches bob's screen through the server (shared/ read cache)", ok && alice.host.kv.get("last") === "0", bob.screen);
 const bobT = performance.now();
 bob.host.setBound("draft", "Review it"); await bob.host.dispatch("main", "add");
@@ -237,6 +237,15 @@ check("H26 heavy compute runs on the server host under its own (larger) limit", 
 const flood = await Promise.all(Array.from({ length: 8 }, () => tb.call("sync", "work", "3000000", vb)));
 const shed = flood.filter((x) => x.error?.code === "overloaded").length;
 check("H27 an app with too many queued calls gets 'overloaded' instead of piling up", shed > 0 && flood.some((x) => x.ok), `${shed} of 8 refused (limit 4 queued)`);
+
+// ---------- idle tenants give their workers back ----------
+const nBefore = st.host.kv.get("shared/tasks.n");
+const evicted = st.host.evictIdle(Date.now() + 1e9);
+t0 = performance.now();
+r = await alice.host.capabilities.remote("sync:count").catch((e) => e.message);
+const coldMs = performance.now() - t0;
+check("H30 idle layer workers are stopped and restarted on the next call, state intact", evicted === 2 && r === String(nBefore) && st.host.history.some((h) => h.kind === "wake"),
+  `${evicted} workers stopped; next call ${coldMs.toFixed(0)} ms (cold start)`);
 
 // ---------- narrowing the mirror ----------
 const dave = client("dave", { watch: ["shared/orders."] });

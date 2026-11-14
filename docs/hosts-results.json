@@ -1,0 +1,84 @@
+{
+  "node": "v22.23.4",
+  "when": "2026-11-14T15:48:49.639Z",
+  "sizes": [
+    {
+      "tasks": 1000,
+      "keys": 3002,
+      "firstCallMs": 3,
+      "callP50": 0.12,
+      "callP99": 0.85,
+      "afterSwapP50": 0.1,
+      "swapWithMigrationMs": 10,
+      "swapOk": true,
+      "clientConnectAllMs": 92,
+      "clientConnectWatchMs": 63,
+      "rssMb": 145
+    },
+    {
+      "tasks": 100000,
+      "keys": 300002,
+      "firstCallMs": 308,
+      "callP50": 0.11,
+      "callP99": 21.28,
+      "afterSwapP50": 0.09,
+      "swapWithMigrationMs": 677,
+      "swapOk": true,
+      "clientConnectAllMs": 1128,
+      "clientConnectWatchMs": 164,
+      "rssMb": 577
+    },
+    {
+      "tasks": 333333,
+      "keys": 1000001,
+      "firstCallMs": 1017,
+      "callP50": 0.15,
+      "callP99": 41.95,
+      "afterSwapP50": 0.09,
+      "swapWithMigrationMs": 2728,
+      "swapOk": true,
+      "clientConnectAllMs": "failed: v6 rejected: llp_view: worker ran out of memory",
+      "clientConnectWatchMs": 343,
+      "rssMb": 1849
+    }
+  ],
+  "fanout": {
+    "clients": 40,
+    "serverOnlyChange": [
+      {
+        "serverMs": 2.5,
+        "p50": 13.02,
+        "max": 13.05
+      },
+      {
+        "serverMs": 23.8,
+        "p50": 19.83,
+        "max": 19.91
+      },
+      {
+        "serverMs": 7.9,
+        "p50": 24.34,
+        "max": 24.4
+      },
+      {
+        "serverMs": 35.9,
+        "p50": 21.56,
+        "max": 21.64
+      },
+      {
+        "serverMs": 2.7,
+        "p50": 20.51,
+        "max": 20.56
+      }
+    ],
+    "clientSlotChange": {
+      "p50": 353.82,
+      "max": 486.75
+    }
+  },
+  "throughput": {
+    "calls": 2000,
+    "inflight": 32,
+    "perSecond": 7257
+  }
+}
