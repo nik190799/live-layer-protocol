@@ -54,6 +54,6 @@ ws.onclose = () => console.log("· stream closed");
 createInterface({ input: process.stdin }).on("line", async (line) => {
   const [cmd, a, ...rest] = line.trim().split(" ");
   if (cmd === "click") await host.dispatch(a, rest[0]);
-  else if (cmd === "set") { host.setBound(a, rest.join(" ")); host.render(); }
+  else if (cmd === "set") { host.setBound(a, rest.join(" ")); await host.render(); }
   else if (cmd === "state") console.log(Object.fromEntries(host.kv));
 });

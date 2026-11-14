@@ -16,6 +16,8 @@ Results land in `bench/out/results.json`. Each timing is reported as p50 / p95 o
 
 ## The short answer
 
+> **Update (sandbox, PR #3):** layers now run in workers with time and memory limits. With that change, a quick re-run on the same kind of machine measured a 3.0 ms swap (p50, was 1.6 ms) and 3.1 ms to revert a crashing layer (was 0.17 ms, because the revert now loads the old version into a fresh worker). File saved to live took 88 ms for 1 host, 154 ms for 100 and 597 ms for 1,000 simulated hosts. The simulated fleet runs layers inline, because hundreds of devices share one process, so its numbers don't include worker cost. The tables below are from the original run.
+
 | Step | Traditional | LLP |
 |---|---|---|
 | Build the change | **Measured** 0.30 s Docker image build, warm cache, trivial app (p50). **Cited** CI workflows average 2 min 49 s (CircleCI 2024) | **Measured** 1.4 s to compile the changed AssemblyScript layer, 0.12 s for the C layer (p50) |
