@@ -67,6 +67,7 @@ if (want("pipeline")) {
     const [ms, r] = await timeA(() => host.apply(m, sig, fetchBlob));
     if (!r.ok || host.kv.get("tasks.n") !== 2 || host.kv.get("migrated.from") !== 1) kept = false;
     st.swapMigrate.push(ms);
+    host.close?.(); // stop this trial's layer workers
   }
 
   // plain swaps: a new build of the same layer, on one long-running host
@@ -87,7 +88,8 @@ if (want("pipeline")) {
     // host side, stage by stage (verify measured on its own; apply repeats it internally)
     const [tv] = await timeA(async () => { const k = await crypto.subtle.importKey("jwk", pub.publicJwk, ECDSA, false, ["verify"]); return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, k, b64.dec(sig), new TextEncoder().encode(canonical(m))); });
     st.verify.push(tv);
-    const [ti] = await timeA(() => host.instantiate("bench", withNonce(v2bytes, `i${i}`))); st.instantiateOnly.push(ti);
+    const nb = withNonce(v2bytes, `i${i}`), nh = await sha256(nb); host.blobs.set(nh, nb);
+    const [ti, box] = await timeA(() => host.load("bench", nh)); host.recycle(box); host.blobs.delete(nh); st.instantiateOnly.push(ti); // load = memory cap + instantiate in a worker
     const [ta, r] = await timeA(() => host.apply(m, sig, fetchBlob));
     if (!r.ok || host.kv.get("tasks.n") !== 2) kept = false;
     st.swapPlain.push(ta);

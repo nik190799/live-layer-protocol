@@ -68,15 +68,15 @@ Every layer instance lives in its own worker (a Web Worker in browsers, `worker_
 
 | Limit | Default | Enforced by | On breach |
 |---|---|---|---|
-| Time per call (`llp_view`, `llp_event`, `llp_migrate`) | 100 ms | host timer; the worker is terminated | killed, writes dropped, slot reverted (at swap time: manifest rejected) |
+| Time per call (`llp_view`, `llp_event`, `llp_migrate`) | 100 ms; 1000 ms for the first call in a fresh worker, which also pays lazy compilation and often lands while the device is busy | host timer; the worker is terminated | killed, writes dropped, slot reverted (at swap time: manifest rejected) |
 | Time to load (compile, instantiate, start function, `llp_schema`) | 2000 ms | host timer | killed, manifest rejected |
 | Linear memory | 32 MB | the host rewrites the module's memory maximum before instantiating, so `memory.grow` fails and the layer traps | trap, writes dropped, slot reverted |
 | UI nodes per call | 10,000 | worker-side ABI | trap |
 | Worker JS heap | 64 MB | `resourceLimits` (Node only) | killed |
 
-When a slot has no previous version to revert to, the host restarts the same version in a fresh worker, so it keeps working for inputs that don't hit the bad path. A page whose security policy blocks workers falls back to running layers on its own thread, logs an error saying so, and loses time-limit protection.
+When a slot has no previous version to revert to, the host restarts the same version in a fresh worker, so it keeps working for inputs that don't hit the bad path. A page whose security policy blocks workers falls back to running layers on its own thread, logs an error saying so, and loses time-limit protection. `limits: { isolation: "inline" }` opts into the same mode on purpose, for trusted code only, such as simulating hundreds of devices in one process (`bench/sim-hosts.mjs`).
 
-Measured on Node 22 (Linux, 2 slots): a warm swap takes about 3 ms (was about 1 ms on the main thread); the first swap takes about 40 ms because it boots the first worker; a two-layer render takes 0.13 ms (was 0.015 ms); an event with its re-render takes 0.23 ms (was 0.02 ms); each worker costs about 12 MB of memory. A stuck layer is cut off about 105 ms after the call starts, and the host's thread never stalls more than a few milliseconds while it runs. Chromium gives the same results (`test/browser.mjs`).
+Measured on Node 22 (Linux, 2 slots): a warm swap takes about 3 ms (was about 1 ms on the main thread); the first swap takes about 40 ms because it boots the first worker; a two-layer render takes 0.13 ms (was 0.015 ms); an event with its re-render takes 0.23 ms (was 0.02 ms); each worker costs about 12 MB of memory. A stuck layer is cut off about 105 ms after the call starts (about 1 s if the stuck call is its first one, as in a swap's health check), and the host's thread never stalls more than a few milliseconds while it runs. Chromium gives the same results (`test/browser.mjs`).
 
 ## 7. Layer ABI (v0)
 

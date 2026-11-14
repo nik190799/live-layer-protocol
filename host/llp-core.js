@@ -41,10 +41,14 @@ export class LayerError extends Error {}
 // that like a trap: the call's state changes are dropped and the slot is reverted.
 export const DEFAULT_LIMITS = {
   callMs: 100,     // wall-clock budget for one llp_view / llp_event / llp_migrate call
+  firstCallMs: 1000, // budget for the first call in a fresh worker, which also pays lazy compilation
+                     // and is the one most likely to land while the device is busy (a swap, app start)
   loadMs: 2000,    // budget for compile + instantiate (+ start function) + llp_schema
   memoryMb: 32,    // cap on the layer's linear memory, written into the module's memory limits
   uiNodes: 10000,  // cap on UI nodes one call may emit (bounds the worker's JS heap in every engine)
   heapMb: 64,      // worker JS heap cap (Node only; browsers have no per-worker heap limit)
+  isolation: "worker", // "inline" runs layers on the host's thread with no time limit: only for trusted
+                        // code, e.g. simulating many devices in one process (bench/sim-hosts.mjs)
 };
 
 // Rewrite the module's own memory declaration so memory.grow fails past the cap. The engine
@@ -191,7 +195,7 @@ async function spawnWorker(limits) {
 // Host-side handle on one layer's worker. One request at a time; a request that overruns kills it.
 class Sandbox {
   constructor(w) {
-    this.w = w; this.dead = null; this.pending = null; this.seq = 0;
+    this.w = w; this.dead = null; this.pending = null; this.seq = 0; this.calls = 0;
     w.listen((m) => { const p = this.pending; if (p && m.id === p.id) { this.pending = null; clearTimeout(p.timer); p.resolve(m); } },
              (why) => this.die(why));
   }
@@ -228,6 +232,7 @@ export class LiveHost {
     this.app = null;
     this.history = [];
     this.spare = null;                   // a pre-spawned worker, so a swap doesn't wait for worker boot
+    this.pool = [];                      // healthy workers freed by swaps, reused before the spare
     this.queue = Promise.resolve();      // apply / render / dispatch run one at a time, as they did when synchronous
   }
 
@@ -241,11 +246,17 @@ export class LiveHost {
 
   // ---------- layer instances (each in its own worker) ----------
   async load(slot, hash) {
-    const w = await (this.spare ?? spawnWorker(this.limits));
-    this.spare = spawnWorker(this.limits);
-    this.spare.catch(() => {});
-    const box = new Sandbox(w);
-    if (w.inline && !this.warnedInline) { this.warnedInline = true; this.log("error", "this page blocks workers, so layers run on the page's thread and a layer stuck in a loop can freeze it"); }
+    const inline = this.limits.isolation === "inline";
+    let box = this.pool.pop(); // a healthy worker freed by an earlier swap: no boot wait
+    if (!box) {
+      const w = inline ? inlineWorker() : await (this.spare ?? spawnWorker(this.limits));
+      if (!inline) this.spare = spawnWorker(this.limits);
+      this.spare?.catch(() => {});
+      box = new Sandbox(w);
+    }
+    box.calls = 0; // the new module's first call gets the first-call budget
+    const w = box.w;
+    if (w.inline && !inline && !this.warnedInline) { this.warnedInline = true; this.log("error", "this page blocks workers, so layers run on the page's thread and a layer stuck in a loop can freeze it"); }
     try {
       const pages = Math.floor(this.limits.memoryMb * 2 ** 20 / PAGE);
       const bytes = capMemory(this.blobs.get(hash), pages);
@@ -259,12 +270,16 @@ export class LiveHost {
   // Run one guest entry point against `kv`. Writes land in `kv` only if the call finishes cleanly.
   async call(slot, box, fn, kv, event = null, ...args) {
     try {
-      const r = await box.request({ op: "call", fn, args, kv, event }, this.limits.callMs);
+      const ms = box.calls++ ? this.limits.callMs : Math.max(this.limits.callMs, this.limits.firstCallMs);
+      const r = await box.request({ op: "call", fn, args, kv, event }, ms);
       this.flushLogs(slot, r.logs);
       for (const [k, v] of r.writes) kv.set(k, v);
       return r;
     } catch (e) { this.flushLogs(slot, e.logs); throw new LayerError(`${fn}: ${e.message}`); }
   }
+  // A worker whose layer was swapped out cleanly is reused for the next load (its old instance is
+  // dropped when the new module loads). Workers that failed or overran are always killed instead.
+  recycle(box) { if (!box.dead && !box.pending && this.pool.length < 2) this.pool.push(box); else box.kill(); }
   flushLogs(slot, logs) { for (const l of logs ?? []) this.log("layer", l, { slot }); }
 
   // ---------- applying a streamed manifest ----------
@@ -272,7 +287,7 @@ export class LiveHost {
   apply(manifest, sig, fetchBlob) { return this.exclusive(() => this.applyNow(manifest, sig, fetchBlob)); }
   async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
-    this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
+    if (this.limits.isolation !== "inline") this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
     if (this.trustedKeys.length) {
       let ok = false;
       for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k)) { ok = true; break; }
@@ -314,10 +329,10 @@ export class LiveHost {
     // Atomic commit.
     for (const { slot, hash, box } of staged) {
       const cur = this.slots.get(slot);
-      cur?.box.kill(); // previous versions are kept as hashes and re-instantiated only on revert
+      if (cur) this.recycle(cur.box); // previous versions are kept as hashes and re-instantiated only on revert
       this.slots.set(slot, { hash, box, prev: cur ? [cur.hash, ...cur.prev].slice(0, this.maxPrev) : [] });
     }
-    for (const s of [...this.slots.keys()]) if (!(s in manifest.layers)) { this.slots.get(s).box.kill(); this.slots.delete(s); }
+    for (const s of [...this.slots.keys()]) if (!(s in manifest.layers)) { this.recycle(this.slots.get(s).box); this.slots.delete(s); }
     this.order = manifest.order ?? Object.keys(manifest.layers);
     this.kv = shadowKv;
     this.app = manifest.app;
@@ -408,6 +423,7 @@ export class LiveHost {
   // Stop every layer worker (lets a Node process exit at once; a browser tab doesn't need it).
   close() {
     for (const s of this.slots.values()) s.box.kill();
+    for (const b of this.pool.splice(0)) b.kill();
     this.spare?.then((w) => w.kill(), () => {});
     this.spare = null;
   }

@@ -12,7 +12,9 @@ const trusted = JSON.parse(readFileSync(keyFile, "utf8"));
 let open = 0;
 
 function startHost(id) {
-  const host = new LiveHost({ trustedKeys: [trusted] });
+  // Hundreds of simulated devices share one process, so layers run inline: a real device runs its own
+  // workers, and that per-device cost is measured in the pipeline section (bench/run.mjs).
+  const host = new LiveHost({ trustedKeys: [trusted], limits: { isolation: "inline" } });
   const ws = new WebSocket(url);
   const pending = new Map();
   const send = (m) => ws.send(JSON.stringify(m));
