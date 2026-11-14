@@ -1,6 +1,6 @@
 # Live Layer Protocol (LLP) — v0 draft
 
-Status: working draft, reference implementation in `host/llp-core.js`. Every rule below is exercised by `test/run.mjs`, except section 10 (run-anywhere hosts), which is design only and not yet implemented or tested.
+Status: working draft, reference implementation in `host/llp-core.js`. Every rule below is exercised by `test/run.mjs` (section 12 by `test/fleet.mjs`), except section 10 (run-anywhere hosts), which is design only and not yet implemented or tested.
 
 ## 1. Goal
 
@@ -167,9 +167,9 @@ Both host types subscribe to the same signed, monotonic stream. An optional `hos
 - A killed layer's `log` output for that call is lost.
 - Memory blowup is caught by the engine's memory cap, so the error says `unreachable` (plus the memory reading) rather than naming an out-of-memory condition.
 - No inter-layer calls; layers communicate only through shared state.
-- Single publisher key; no key rotation, delegation, or threshold signing (TUF roles cover this).
+- Manifests carry one signature, so release keys are 1-of-n; only the root role (section 12.4) supports k-of-n thresholds. No delegation to per-team or per-slot keys yet. Keyrings don't expire, so a host cut off from the controller isn't told it is stale (TUF's freeze-attack defence).
 - Bespoke JSON-free ABI instead of the WebAssembly Component Model/WIT; the ABI is designed to map onto WIT once browser support lands.
-- Fleet features (channels, percentage rollouts, convergence reporting) are not implemented.
+- Fleet status reports (section 12.3) are the host's own word and are unauthenticated. They are fine for tracking and gating rollouts, never for security decisions.
 - **Run-anywhere hosts (section 10) are unproven.** None of these points are implemented or tested yet; each is an open question:
   - No commit spans client and server. Whether "server first + overlap window" is enough, and how long the window must be, is unverified.
   - Shadow-copying a large multi-user store to verify a migration (section 6, step 4) may not scale; how to verify server migrations is open.
@@ -177,3 +177,55 @@ Both host types subscribe to the same signed, monotonic stream. An optional `hos
   - Server nodes run many tenants' layers. The per-layer worker sandbox (section 6.1) is the starting point, but one worker per layer per tenant won't scale, and wall-clock limits are unfair under shared load.
   - The `remote` capability's wire format, auth (which user is calling) and error model are not specified.
   - Key custody for the authority role (HSM, rotation) is not specified.
+
+## 12. Fleet operations
+
+Implemented in `host/fleet.js` (host side, browser and Node) and `tools/fleet.mjs` (controller); proven by `test/fleet.mjs`. The core (section 6) is unchanged: the fleet layer decides *whether* a host applies a manifest, and the core still verifies everything before it goes live.
+
+### 12.1 Channels
+
+A manifest may carry `"channel": "<name>"`. A fleet host belongs to exactly one channel and refuses manifests for any other, including ones with no channel. The field is inside the signature, so a valid beta manifest can't be replayed onto stable hosts, and editing it breaks the signature. `version` stays one counter for the whole app, across channels.
+
+### 12.2 Percentage rollouts
+
+```json
+{ "app": "demo.tasks", "channel": "stable", "version": 7, "layers": {...}, "order": [...],
+  "rollout": { "percent": 25, "seed": "demo.tasks/stable" } }
+```
+
+Each host computes its bucket, `uint32(sha256(seed + "\n" + hostId)[0..4]) mod 10000`, and applies the manifest only if `bucket < percent × 100`. Hosts outside the share report `skipped` and keep running the previous release. Because the bucket is fixed per host and seed, widening a share only adds hosts. To widen, the controller re-signs the same version with a higher percent. Hosts already on that version have nothing to do; newly included hosts apply it. The default seed keeps the same canary hosts from release to release; set a per-release seed to rotate them. Narrowing a share can't take a release back from hosts that already run it: that is a rollback (10.3.4).
+
+### 12.3 Convergence
+
+Fleet messages travel next to the section 5 stream:
+
+| Direction | Message |
+|---|---|
+| host → controller | `{"t":"hello","app","host","channel","version","keyring","have"}` |
+| controller → host | `{"t":"keyring","doc","sigs"}` (every keyring newer than the host's, oldest first), then the channel's current manifest |
+| host → controller | `{"t":"status","host","channel","version","keyring","target","percent","state","reason"}` |
+
+`state` is `live`, `skipped` (outside the share), `rejected` (refused before going live), `reverted` (went live, then trapped and was reverted, principle 6), `keyring` or `keyring-rejected`. Manifests older than the running version are ignored without a report. For each channel the controller reports how many online hosts are live on the target version, held back, rejected (with reasons), reverted, still pending, or on an old keyring, plus how many are offline. A channel has **converged** when no online host is pending, rejected, reverted or on an old keyring, and, at 100%, none is held back. An offline host catches up when it reconnects, because `hello` is always answered with the missing keyrings and the current manifest.
+
+**Gated rollouts.** `rollout(channel, layers, { steps: [5, 25, 50, 100], maxFailRate, soakMs })` publishes at the first step, waits until every online host has reported, lets runtime failures surface for `soakMs`, and computes the failure rate (rejected + reverted, over hosts that tried it). Above `maxFailRate` (default 0) it stops widening and publishes a rollback; otherwise it widens to the next step.
+
+### 12.4 Keys and rotation
+
+Two roles, after TUF:
+
+- **Root** keys (k-of-n, kept offline) sign only keyrings.
+- **Release** keys sign manifests (section 4, one signature).
+
+```json
+{ "app": "demo.tasks", "keyring": 3,
+  "root": { "keys": [<jwk>, <jwk>, <jwk>], "threshold": 2 },
+  "release": { "keys": [<jwk>] } }
+```
+
+Signatures go alongside the document as `[{ "kid", "sig" }]`, where `kid` is the first 16 hex characters of SHA-256 over the canonical `{crv,kty,x,y}` of the key. A host is installed with a pinned keyring and accepts keyring n+1 only if (1) its number is exactly one higher, (2) it is signed by a threshold of the *current* root, and (3) if it changes the root, it is also signed by a threshold of the *new* root. Each step is therefore checked against keys the host already trusts, and a host that missed several rotations walks the chain in order.
+
+- **Release key rotation:** keyring n+1 lists only the new key. The controller sends it to every host, then re-signs every channel's current manifest with the new key (same version, so hosts already on it do nothing). The old key is revoked the moment a host accepts the keyring. A leaked release key can't issue keyrings.
+- **Root rotation:** keyring n+1 with a new `root`, signed by old and new roots. Afterwards the old root keys can't issue keyrings.
+- A host must store its latest accepted keyring (`host/fleet-host.mjs --trust-dir`). One that restarts from the pinned keyring trusts revoked keys again until it reconnects to the controller. `test/fleet.mjs` W6 shows both cases.
+
+The core's `trustedKeys` becomes the keyring's release keys; the agent also checks the signature itself before evaluating channel or share.

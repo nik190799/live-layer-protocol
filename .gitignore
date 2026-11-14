@@ -1,3 +1,6 @@
 node_modules/
 keys/
 *.log
+.ai-live/
+bench/out/
+.fleet-trust/
