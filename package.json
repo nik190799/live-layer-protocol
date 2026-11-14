@@ -7,7 +7,8 @@
     "test:core": "node test/run.mjs",
     "test:service": "node test/service.mjs",
     "test:live": "node test/live-e2e.mjs",
-    "build": "asc layers/tasks-as/app.ts -o build/tasks.wasm -O3 && clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c && asc layers/variants/tasks_v2.ts -o build/tasks_v2.wasm -O3 && asc layers/variants/tasks_broken.ts -o build/tasks_broken.wasm -O3 && asc layers/variants/tasks_trap.ts -o build/tasks_trap.wasm -O3"
+    "build": "asc layers/tasks-as/app.ts -o build/tasks.wasm -O3 && clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c && asc layers/variants/tasks_v2.ts -o build/tasks_v2.wasm -O3 && asc layers/variants/tasks_broken.ts -o build/tasks_broken.wasm -O3 && asc layers/variants/tasks_trap.ts -o build/tasks_trap.wasm -O3",
+    "bench": "node bench/run.mjs"
   },
   "keywords": [],
   "author": "",
