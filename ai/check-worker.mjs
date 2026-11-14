@@ -24,7 +24,7 @@ function controls(node, out = { ids: [], binds: [] }) {
 
 async function use(host, slots, rounds, { skip = /^$/ } = {}) {
   for (let r = 0; r < rounds; r++) {
-    for (const { slot, tree } of host.render()) {
+    for (const { slot, tree } of await host.render()) {
       if (!slots.includes(slot)) continue;
       const { ids, binds } = controls(tree);
       for (const b of binds) host.setBound(b, `sample ${r + 1}`);
@@ -47,13 +47,13 @@ try {
 
   const r2 = await host.apply(await manifest(2, { ...base, [candidate.slot]: candidate.bytes }), "", fetchBlob);
   if (!r2.ok) throw new Error(`swap refused: ${r2.reason}`);
-  const preview = host.render();
+  const preview = await host.render();
 
   const mark = log.length;
   await use(host, [candidate.slot], 2);
   const bad = log.slice(mark).find((e) => e.kind === "rollback" || e.kind === "error");
   if (bad) throw new Error(`trapped while its buttons were clicked: ${bad.msg}`);
-  const out = host.render();
+  const out = await host.render();
   const broken = out.find((s) => s.error);
   if (broken) throw new Error(`${broken.slot} failed to render: ${broken.error}`);
 

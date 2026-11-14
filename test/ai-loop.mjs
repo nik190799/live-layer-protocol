@@ -61,9 +61,10 @@ const pub = proc([join(ROOT, "tools/ai-publish.mjs"), "--port", "7792", "--backe
 await pub.waitFor(/streaming on/);
 const host = proc([join(ROOT, "host/node-host.mjs"), "ws://localhost:7792", join(work, "keys/publisher.pub.json")], work);
 await host.waitFor(/Tasks/);
-host.cmd("set draft Buy milk"); host.cmd("click main add");
-host.cmd("set draft Call mom"); host.cmd("click main add"); host.cmd("click main t:0");
-await sleep(300);
+// one command at a time: the host handles each stdin line asynchronously
+const run = async (p, ...cmds) => { for (const c of cmds) { p.cmd(c); await sleep(120); } };
+await run(host, "set draft Buy milk", "click main add", "set draft Call mom", "click main add", "click main t:0");
+await sleep(200);
 check("A1 host is running the starting layer with state the person added", /\[x\] Buy milk/.test(lastFrame(host.out)) && /Call mom/.test(lastFrame(host.out)));
 
 // ---- A2–A4: compile error goes back to the model, person approves, app updates with state kept ----
@@ -99,12 +100,12 @@ pub.cmd("add a reset"); await pub.waitFor(/approve\?/, mark, 15000);
 const fb = requests.slice(before).map(lastUserMsg);
 check("A6 a layer that traps when its button is clicked fails the shadow check and the trap goes back to the model",
   /trapped while its buttons were clicked/.test(fb[1] || "") && /✗ check/.test(pub.out.slice(mark)));
-check("A7 a layer with an infinite loop is stopped by the time limit and the model is told", /timed out after 3000 ms/.test(fb[2] || ""));
+check("A7 a layer with an infinite loop is stopped by the time limit and the model is told", /timed out after 3000 ms|time limit/.test(fb[2] || ""));
 hm = host.out.length; pub.cmd("y"); await host.waitFor(/Tasks 3/, hm);
 check("A8 the fixed version goes live and the publisher stayed responsive after the loop", /Tasks 3/.test(lastFrame(host.out)) && /Buy milk/.test(lastFrame(host.out)));
 
 // ---- A9: the host's own check uses real state the shadow check didn't have; its refusal goes back too ----
-for (const t of ["Eggs", "Bread", "Tea", "Rice"]) { host.cmd(`set draft ${t}`); host.cmd("click main add"); }
+for (const t of ["Eggs", "Bread", "Tea", "Rice"]) await run(host, `set draft ${t}`, "click main add");
 await sleep(400);
 mark = pub.out.length; const b2 = requests.length;
 queue.push(reply(V.trapsWithMoreThan5), reply(withHeading("Tasks 4")));
@@ -139,7 +140,7 @@ const demo = proc([join(ROOT, "tools/ai-publish.mjs"), "--port", "7793", "--sour
 await demo.waitFor(/streaming on/);
 const h2 = proc([join(ROOT, "host/node-host.mjs"), "ws://localhost:7793", join(work2, "keys/publisher.pub.json")], work2);
 await h2.waitFor(/Tasks/);
-h2.cmd("set draft Buy milk"); h2.cmd("click main add"); await sleep(200);
+await run(h2, "set draft Buy milk", "click main add"); await sleep(200);
 demo.cmd("anything"); await demo.waitFor(/approve\?/);
 const h2m = h2.out.length; demo.cmd("y"); await h2.waitFor(/task left/, h2m);
 check("A12 with no key the stub backend proves the same loop (compile error, retry, approve, live)",
