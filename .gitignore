@@ -3,3 +3,4 @@ keys/
 *.log
 .ai-live/
 bench/out/
+.fleet-trust/
