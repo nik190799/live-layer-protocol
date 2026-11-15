@@ -99,6 +99,8 @@ export const DEFAULT_LIMITS = {
   uiNodes: 10000,  // cap on UI nodes one call may emit (bounds the worker's JS heap in every engine)
   heapMb: 64,      // worker JS heap cap (Node only; browsers have no per-worker heap limit)
   blobMb: 16,      // largest layer download accepted (SEC-06)
+  maxKeys: 2_000_000, // state quota: keys in the host store a layer call may grow it to (CO-04)
+  maxValueKb: 256,    // state quota: largest string value one write may store (CO-04)
   isolation: "worker", // "inline" runs layers on the host's thread with no time limit: only for trusted
                         // code, e.g. simulating many devices in one process (bench/sim-hosts.mjs)
 };
@@ -332,6 +334,23 @@ export function privatePrefixes(manifest) {
   if (!Array.isArray(p) || p.length > 64 || !p.every((x) => typeof x === "string" && x.startsWith("shared/") && x.length > 7 && x.length <= 256)) throw new LayerError("private must be a list of up to 64 shared/ prefixes");
   return p;
 }
+// ---------- protocol version (GOV-01) ----------
+// A manifest may say which LLP version it follows: "llp": 1. A host refuses versions it doesn't
+// implement. Version 1 is strict: every top-level field must be one this host understands (fields
+// starting "x-" are ignorable extensions), and isolation is the default, not opt-in: a v1 manifest must
+// declare "keys" (6.2) and "caps" (9). Manifests without "llp" are v0 and keep the v0 rules.
+export const LLP_VERSION = 1;
+export const MANIFEST_FIELDS = new Set(["llp", "app", "version", "epoch", "layers", "order", "hosts", "keys", "caps", "private", "channel", "rollout", "overlap"]);
+export function protocolProblem(m) {
+  if (m.llp === undefined) return null;
+  if (!Number.isSafeInteger(m.llp) || m.llp < 1) return `llp must be a positive integer, got ${JSON.stringify(m.llp)}`;
+  if (m.llp > LLP_VERSION) return `manifest needs LLP ${m.llp}; this host implements up to ${LLP_VERSION}`;
+  const unknown = Object.keys(m).filter((k) => !MANIFEST_FIELDS.has(k) && !k.startsWith("x-"));
+  if (unknown.length) return `unknown field${unknown.length > 1 ? "s" : ""} ${unknown.join(", ")} in an LLP ${m.llp} manifest (prefix optional fields with x-)`;
+  if (m.keys === undefined) return `an LLP ${m.llp} manifest must declare keys for every slot`;
+  if (m.caps === undefined) return `an LLP ${m.llp} manifest must declare caps (use {} for none)`;
+  return null;
+}
 const canRead = (rule, k) => !rule || under(rule.own, k) || under(rule.read, k);
 export const placement = (manifest, slot) => manifest.hosts?.[slot] ?? "client";
 
@@ -366,6 +385,9 @@ export class LiveHost {
     this.queue = Promise.resolve();      // apply / render / dispatch run one at a time, as they did when synchronous
     if (this.allowUnsigned) this.log("security", "allowUnsigned is on: manifests are NOT signature-checked. Use this only for development and shadow checks.");
   }
+
+  // Which code each slot is actually running (OB-01): after a revert this differs from the manifest.
+  running() { return Object.fromEntries([...this.slots].map(([slot, s]) => [slot, s.hash])); }
 
   // Where a manifest sits relative to the running one: -1 older or same-as-running replay, 0 same, 1 newer.
   compareVersion(m) {
@@ -456,6 +478,7 @@ export class LiveHost {
       this.flushLogs(slot, r.logs);
       r.writes = this.filterWrites(slot, r.writes);
       this.checkWrites(slot, box.rule, r.writes);
+      this.checkQuota(slot, kv, r.writes);
       if (apply) for (const [k, v] of r.writes) kv.set(k, v);
       return r;
     } catch (e) { this.flushLogs(slot, e.logs); throw new LayerError(`${fn}: ${e.message}`); }
@@ -467,6 +490,18 @@ export class LiveHost {
     const kept = writes.filter(([k]) => !k.startsWith("shared/"));
     if (kept.length !== writes.length) this.log("error", `${slot}: wrote shared/ keys on a client; dropped (shared/ is owned by the server host)`, { slot });
     return kept;
+  }
+  // State quotas (CO-04): a call that would push the store past maxKeys, or write a value bigger than
+  // maxValueKb, fails like a trap and keeps nothing.
+  checkQuota(slot, kv, writes) {
+    let added = 0;
+    for (const [k, v] of writes) {
+      if (typeof v === "string" && v.length > this.limits.maxValueKb * 1024) throw new LayerError(`${slot} wrote ${Math.ceil(v.length / 1024)} KB to "${k}"; the limit is ${this.limits.maxValueKb} KB per value`);
+      if (k.length > 1024) throw new LayerError(`${slot} wrote a key longer than 1024 characters`);
+      if (!kv.has(k)) added++;
+    }
+    const size = kv.size ?? kv.parent?.size ?? 0;
+    if (added && size + added > this.limits.maxKeys) throw new LayerError(`${slot} would grow state to ${size + added} keys; the limit is ${this.limits.maxKeys}`);
   }
   // A write outside what the slot owns fails the call, like a trap: nothing it wrote is kept.
   checkWrites(slot, rule, writes) {
@@ -496,13 +531,18 @@ export class LiveHost {
       if (!this.app) return this.reject(manifest, "host has no app pinned; refusing (pass the app name when creating the host)");
     }
     if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app");
+    const pp = protocolProblem(manifest);
+    if (pp) return this.reject(manifest, pp);
     const vp = this.versionProblem(manifest);
     if (vp) return this.reject(manifest, vp);
     for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`);
 
     let rules;
     let caps;
-    try { rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest); } catch (e) { return this.reject(manifest, e.message); }
+    try {
+      rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest);
+      if (manifest.overlap !== undefined && !(Number.isSafeInteger(manifest.overlap) && manifest.overlap >= 0)) throw new LayerError("overlap must be a non-negative number of milliseconds");
+    } catch (e) { return this.reject(manifest, e.message); }
 
     // The whole manifest is verified, but only the slots placed on this host are fetched and run.
     const mine = Object.entries(manifest.layers).filter(([slot]) => this.placedHere(manifest, slot));

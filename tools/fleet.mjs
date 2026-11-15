@@ -4,8 +4,9 @@
 // As a library:  const fleet = await FleetController.create({ app }); serve(fleet, { port });
 // As a CLI:      node tools/fleet.mjs --port 7720 [--keys keys/fleet]
 //   stdin:  publish <channel> <percent> slot=file.wasm ...  |  percent <channel> <p>  |  rollback <channel>
-//           rollout <channel> <p1,p2,...> slot=file ...     |  rotate  |  status [channel]
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+//           rollout <channel> <p1,p2,...> slot=file ...     |  rotate [root-dir]  |  status [channel]
+// A new controller writes its root keys once to --root-out (default <keys>-root): move them offline.
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { sha256, signManifest, generatePublisherKey, b64 } from "../host/llp-core.js";
 import { signDoc, verifyDoc, bucketOf, rolloutSeed } from "../host/fleet.js";
@@ -35,6 +36,8 @@ export class FleetController {
     this.members = new Map();   // channel -> Set of host records
     this.waiters = new Set();
     this.onEnroll = () => {};
+    this.lost = new Map();      // host id -> last record, for hosts retired by sweepOffline
+    this.lostCount = new Map(); // channel -> number of lost hosts
   }
 
   static async create({ app, roots = 1, threshold = 1, version, ...opts } = {}) {
@@ -124,6 +127,8 @@ export class FleetController {
   // keyring first, then every channel's current manifest re-signed with the new key. The old key
   // is revoked the moment a host accepts the keyring.
   async rotateReleaseKey({ rootSigners = this.rootKeys } = {}) {
+    const need = this.keyring.root.threshold ?? 1;
+    if (rootSigners.length < need) throw new Error(`rotation needs ${need} root key(s) and has ${rootSigners.length}; load them from offline storage (SEC-02)`);
     const releaseKey = await generatePublisherKey();
     const doc = { ...this.keyring, keyring: this.keyring.keyring + 1, release: { keys: [releaseKey.publicJwk] } };
     await this.pushKeyring(doc, await this.signKeyring(doc, rootSigners.slice(0, this.keyring.root.threshold ?? 1)));
@@ -171,6 +176,7 @@ export class FleetController {
       } else if (msg.t === "status" && msg.host === rec.id) {
         // Reports come only over a connection that proved it holds this host's device key.
         Object.assign(rec, { version: msg.version, keyring: msg.keyring, target: msg.target, percent: msg.percent, state: msg.state, reason: msg.reason, seen: Date.now() });
+        if (msg.running && typeof msg.running === "object") rec.running = msg.running; // the hashes really running (OB-01)
         if (msg.state === "reverted") rec.reverted = msg.version;
         this.update(rec);
         this.onEvent({ kind: "status", ...msg });
@@ -185,7 +191,7 @@ export class FleetController {
         const rec = conn.rec;
         if (!rec) return;
         rec.conns.delete(conn);
-        if (!rec.conns.size) { rec.online = false; this.update(rec); this.tick(); }
+        if (!rec.conns.size) { rec.online = false; rec.offlineSince = Date.now(); this.update(rec); this.tick(); }
       },
     };
   }
@@ -203,6 +209,8 @@ export class FleetController {
     if (conn.closed) return;
     if (conn.rec && conn.rec.id !== id) return refuse("one connection speaks for one host");
     if (!known) this.enroll(id, pubOf(auth.key));
+    const back = this.lost.get(id);
+    if (back) { this.lost.delete(id); this.lostCount.set(back.channel, this.lostCount.get(back.channel) - 1); }
     const rec = this.hosts.get(id) ?? { id, conns: new Set(), send: (m) => { for (const c of rec.conns) c.send(m); } };
     rec.conns.add(conn);
     conn.rec = rec;
@@ -213,6 +221,22 @@ export class FleetController {
     const cur = this.channels.get(msg.channel)?.current;
     if (cur) { const n = await this.note(msg.channel); if (!conn.closed) { conn.send({ t: "fresh", ...n }); conn.send({ t: "manifest", ...cur }); } }
     this.tick();
+  }
+
+  // Retire hosts that have been offline longer than maxOfflineMs (FL-03): they stop counting toward
+  // "complete" and are listed in this.lost instead. A lost host that says hello again comes back.
+  sweepOffline(maxOfflineMs, now = Date.now()) {
+    let n = 0;
+    for (const [id, rec] of this.hosts) {
+      if (rec.online || !(now - (rec.offlineSince ?? rec.seen ?? now) > maxOfflineMs)) continue;
+      if (rec.contrib) { this.contribute(rec, rec.contrib, -1); this.members.get(rec.contrib.channel)?.delete(rec); rec.contrib = null; }
+      this.hosts.delete(id);
+      this.lost.set(id, { channel: rec.channel, version: rec.version, since: rec.offlineSince });
+      this.lostCount.set(rec.channel, (this.lostCount.get(rec.channel) ?? 0) + 1);
+      n++;
+    }
+    if (n) { this.onEvent({ kind: "lost", hosts: n }); this.tick(); }
+    return n;
   }
 
   // ---------- convergence ----------
@@ -263,7 +287,7 @@ export class FleetController {
     const s = this.statsOf(channel);
     const laggards = [];
     for (const id of s.pendingIds) { if (laggards.length >= 10) break; laggards.push(id); }
-    const r = { channel, version: T, percent, hosts: s.hosts, online: s.online, live: s.live, skipped: s.skipped, rejected: s.rejected, reverted: s.reverted, pending: s.pending, offline: s.offline, oldKeyring: s.oldKeyring, reasons: Object.fromEntries(s.reasons), laggards };
+    const r = { channel, version: T, percent, lost: this.lostCount.get(channel) ?? 0, hosts: s.hosts, online: s.online, live: s.live, skipped: s.skipped, rejected: s.rejected, reverted: s.reverted, pending: s.pending, offline: s.offline, oldKeyring: s.oldKeyring, reasons: Object.fromEntries(s.reasons), laggards };
     r.converged = !!T && r.online > 0 && r.pending === 0 && r.rejected === 0 && r.reverted === 0 && r.oldKeyring === 0 && (percent >= 100 ? r.skipped === 0 : true);
     // converged ignores offline hosts (a phone that's switched off shouldn't block a release). complete
     // doesn't: every host the controller has ever seen on this channel is on the target. Gate anything
@@ -314,23 +338,31 @@ export class FleetController {
   }
 
   // ---------- persistence (CLI) ----------
-  async save(dir) {
+  // Root keys are never written next to the release key (SEC-02). Pass rootDir to export them once,
+  // to a location you then take offline; later rotations load them from there (or from several
+  // people's files) only for the moment they sign.
+  async save(dir, { rootDir = null } = {}) {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "root.json"), JSON.stringify(await Promise.all(this.rootKeys.map(exportKey))));
-    writeFileSync(join(dir, "release.json"), JSON.stringify(await exportKey(this.releaseKey)));
+    if (rootDir) { mkdirSync(rootDir, { recursive: true, mode: 0o700 }); writeSecret(join(rootDir, "root.json"), JSON.stringify(await Promise.all(this.rootKeys.map(exportKey)))); }
+    writeSecret(join(dir, "release.json"), JSON.stringify(await exportKey(this.releaseKey)));
     writeFileSync(join(dir, "keyrings.json"), JSON.stringify(this.keyrings));
     writeFileSync(join(dir, "keyring.pinned.json"), JSON.stringify(this.keyring)); // ship this with hosts
     writeFileSync(join(dir, "devices.json"), JSON.stringify(Object.fromEntries(this.devices)));
   }
+  static async loadRootKeys(rootDir) { return Promise.all(JSON.parse(readFileSync(join(rootDir, "root.json"), "utf8")).map(importKey)); }
   static async load(dir, opts = {}) {
     const keyrings = JSON.parse(readFileSync(join(dir, "keyrings.json"), "utf8"));
-    const rootKeys = await Promise.all(JSON.parse(readFileSync(join(dir, "root.json"), "utf8")).map(importKey));
+    // Old layout kept root keys here; load them so nothing breaks, but say so.
+    const legacy = existsSync(join(dir, "root.json"));
+    if (legacy) console.error(`warning: ${join(dir, "root.json")} holds root keys next to the release key; move it offline (SEC-02)`);
+    const rootKeys = legacy ? await FleetController.loadRootKeys(dir) : [];
     const releaseKey = await importKey(JSON.parse(readFileSync(join(dir, "release.json"), "utf8")));
     const devices = existsSync(join(dir, "devices.json")) ? JSON.parse(readFileSync(join(dir, "devices.json"), "utf8")) : {};
     return new FleetController({ app: keyrings[0].doc.app, rootKeys, releaseKey, keyrings, devices, ...opts });
   }
 }
 
+function writeSecret(file, text) { writeFileSync(file + ".tmp", text, { mode: 0o600 }); renameSync(file + ".tmp", file); }
 const pubOf = (jwk) => ({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
 
 // WebSocket transport. Returns the server.
@@ -352,8 +384,11 @@ export async function serve(fleet, { port = 7720, host, maxPayload = 1024 * 1024
 if (import.meta.url === `file://${process.argv[1]}`) {
   const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
   const port = +arg("--port", 7720), dir = arg("--keys", "keys/fleet"), app = arg("--app", "demo.tasks");
-  const fleet = existsSync(join(dir, "keyrings.json")) ? await FleetController.load(dir) : await FleetController.create({ app });
-  await fleet.save(dir);
+  const rootOut = arg("--root-out", dir.replace(/\/+$/, "") + "-root");
+  const fresh = !existsSync(join(dir, "keyrings.json"));
+  const fleet = fresh ? await FleetController.create({ app }) : await FleetController.load(dir);
+  await fleet.save(dir, fresh ? { rootDir: rootOut } : {});
+  if (fresh) { fleet.rootKeys = []; console.log(`root keys written to ${join(rootOut, "root.json")}: move them offline; "rotate <root-dir>" loads them only to sign`); }
   fleet.onEvent = (e) => { if (e.kind !== "status") console.log("·", JSON.stringify(e)); };
   fleet.onEnroll = () => { writeFileSync(join(dir, "devices.json"), JSON.stringify(Object.fromEntries(fleet.devices))); };
   await serve(fleet, { port });
@@ -368,7 +403,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       else if (cmd === "percent") await fleet.setPercent(ch, +x);
       else if (cmd === "rollback") console.log("rolled back as v" + await fleet.rollback(ch));
       else if (cmd === "rollout") console.log(JSON.stringify(await fleet.rollout(ch, await layersOf(rest), { steps: x.split(",").map(Number), soakMs: 2000 }), null, 1));
-      else if (cmd === "rotate") { console.log("keyring " + await fleet.rotateReleaseKey()); await fleet.save(dir); }
+      else if (cmd === "rotate") {
+        const signers = fleet.rootKeys.length ? fleet.rootKeys : await FleetController.loadRootKeys(ch ?? rootOut);
+        console.log("keyring " + await fleet.rotateReleaseKey({ rootSigners: signers }));
+        await fleet.save(dir);
+      }
       else if (cmd === "status") for (const c of ch ? [ch] : fleet.channels.keys()) console.log(JSON.stringify(fleet.convergence(c)));
     } catch (e) { console.log("error:", e.message); }
   });

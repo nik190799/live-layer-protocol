@@ -75,7 +75,14 @@ export class ServerLiveHost extends LiveHost {
   }
   committed(prev, next) {
     const now = Date.now();
-    if (prev && this.served.has(prev.version)) this.served.get(prev.version).until = now + this.windowMs;
+    // A signed "overlap" (ms) shortens the window for this release; 0 retires older code at once (CO-02),
+    // e.g. when the release fixes a security bug in the server half.
+    const win = Number.isSafeInteger(next.overlap) && next.overlap >= 0 ? Math.min(next.overlap, this.windowMs) : this.windowMs;
+    if (prev && this.served.has(prev.version)) this.served.get(prev.version).until = now + win;
+    if (win === 0) {
+      for (const [v, s] of this.served) if (v !== next.version) s.until = now - 1;
+      for (const [k, box] of this.retired) { box.kill(); this.retired.delete(k); }
+    }
     const layers = {};
     for (const [slot, h] of Object.entries(next.layers)) if (this.placedHere(next, slot)) layers[slot] = h;
     this.served.set(next.version, { layers, until: Infinity });
@@ -133,7 +140,11 @@ export class ServerLiveHost extends LiveHost {
   // A remote call: run op on a server slot as `user`. Each hop (the call, then one per capability
   // result) is its own transaction. Capabilities run outside the tenant's queue, so a slow payment
   // API doesn't hold up other calls.
-  async invoke(slot, op, user, args, version) {
+  // callKey: the call's idempotency key (user:idem), when the client sent one. Each outside effect of
+  // the call then gets a stable id (callKey#hop.n): providers receive it as ctx.callId to deduplicate,
+  // and with an effectLog the effect is recorded as pending before it runs and done after (ST-03), so a
+  // retried call reuses a finished effect's result instead of running it again.
+  async invoke(slot, op, user, args, version, callKey = null) {
     const events = [{ id: op, value: `${user}\n${args}` }];
     let reply = "";
     for (let hop = 0; events.length; hop++) {
@@ -157,12 +168,21 @@ export class ServerLiveHost extends LiveHost {
       });
       if (r.error !== undefined) throw new RemoteError("app_error", r.error);
       if (r.reply !== undefined) reply = r.reply;
-      for (const fx of r.effects) {
+      for (let i = 0; i < r.effects.length; i++) {
+        const fx = r.effects[i];
         const impl = this.capabilities[fx.name];
+        const callId = callKey ? `${callKey}#${hop}.${i}` : null;
+        const seen = callId ? this.effectLog?.get(callId) : null;
         let result;
         if (!this.capAllowed(slot, fx.name)) { result = "error: not granted"; this.log("cap", `capability "${fx.name}" is not declared for ${slot} in this release; refused`, { slot }); }
         else if (!impl) result = "error: not granted";
-        else try { result = String(await impl(fx.arg, { slot, app: this.app, user })); } catch (e) { result = "error: " + e.message; }
+        else if (seen?.state === "done" && seen.name === fx.name) { result = seen.result; this.log("cap", `${fx.name} for ${callId} already ran; reusing its recorded result`, { slot }); }
+        else {
+          if (seen?.state === "pending") this.log("cap", `${fx.name} for ${callId} was started before a crash; running it again with the same callId so the provider can deduplicate`, { slot });
+          if (callId) this.effectLog?.pending(callId, fx.name);
+          try { result = String(await impl(fx.arg, { slot, app: this.app, user, callId })); } catch (e) { result = "error: " + e.message; }
+          if (callId) this.effectLog?.done(callId, fx.name, result);
+        }
         events.push({ id: `cap:${fx.name}`, value: result });
       }
     }
@@ -203,6 +223,12 @@ export class ServerHost {
     return out;
   }
 
+  recordEffect(t, id, rec) {
+    t.effects.set(id, rec);
+    if (t.effects.size > IDEM_KEEP) t.effects.delete(t.effects.keys().next().value);
+    t.log?.append({ fx: [[id, rec]] }); // on disk before the effect runs (pending) and before the reply (done)
+  }
+
   // Write everything changed since the last commit, with the given idempotency records, in one line.
   persist(t, idem = []) {
     if (!t.log) return;
@@ -211,7 +237,7 @@ export class ServerHost {
     t.unsaved.clear();
     for (const [k, r] of idem) { t.idemSaved.set(k, r); if (t.idemSaved.size > IDEM_KEEP) t.idemSaved.delete(t.idemSaved.keys().next().value); }
     t.log.append({ set, del, idem });
-    if (t.log.needsCompaction()) t.log.compact(t.host.kv, t.idemSaved);
+    if (t.log.needsCompaction()) t.log.compact(t.host.kv, t.idemSaved, t.effects);
   }
 
   tenant(app) {
@@ -224,14 +250,21 @@ export class ServerHost {
       capabilities: Object.fromEntries(Object.entries(this.capabilities).map(([n, f]) => [n, (arg, ctx) => f(arg, { ...ctx, app })])),
       onLog: (e) => this.onLog({ app, ...e }),
     });
-    t = { app, host, clients: new Set(), current: null, idem: new Map(), pending: 0, dirty: new Set(), unsaved: new Set(), idemSaved: new Map(), log: null };
+    t = { app, host, clients: new Set(), current: null, idem: new Map(), pending: 0, dirty: new Set(), unsaved: new Set(), idemSaved: new Map(), effects: new Map(), log: null };
     if (this.disk) {
       t.log = this.disk.tenant(app);
       const saved = t.log.load();
       host.kv = saved.kv;
       t.idemSaved = saved.idem;
+      t.effects = saved.fx;
       for (const [k, r] of saved.idem) t.idem.set(k, Promise.resolve(r));
     }
+    // Outside effects of calls, recorded before they run and after (ST-03). Durable with dataDir.
+    host.effectLog = {
+      get: (id) => t.effects.get(id),
+      pending: (id, name) => this.recordEffect(t, id, { state: "pending", name }),
+      done: (id, name, result) => this.recordEffect(t, id, { state: "done", name, result }),
+    };
     host.kv.onChange = (k) => { if (k.startsWith("shared/")) t.dirty.add(k); if (t.log) t.unsaved.add(k); };
     this.tenants.set(app, t);
     return t;
@@ -334,7 +367,7 @@ export class ServerHost {
     if (!c.user) return send(c.ws, m.t === "call" ? reply(m.id, new RemoteError("unauthorized", "say hello with a token first")) : { t: "error", code: "unauthorized", message: "say hello with a token first" });
     const t = this.tenants.get(c.app);
     if (m.t === "want") { for (const h of m.hashes ?? []) if (t.host.blobs.has(h)) send(c.ws, { t: "blob", hash: h, data: b64.enc(t.host.blobs.get(h)) }); return; }
-    if (m.t === "ack") { c.version = m.version; c.ackMs = m.ms; return; }
+    if (m.t === "ack") { c.version = m.version; c.ackMs = m.ms; if (m.running && typeof m.running === "object") c.running = m.running; return; }
     if (m.t === "nack") { this.onLog({ app: c.app, kind: "client-nack", msg: `${c.user} can't run v${m.version}: ${m.reason}` }); return; }
     if (m.t === "call") {
       const r = await this.call(t, c.user, m);
@@ -351,7 +384,7 @@ export class ServerHost {
     if (key && t.idem.has(key)) return reply(id, await t.idem.get(key));
     if (t.pending >= this.maxPending) return reply(id, new RemoteError("overloaded", `${t.pending} calls already queued for this app`));
     t.pending++;
-    const run = t.host.invoke(slot, op, user, args, version).then((value) => ({ value }), (e) => e instanceof RemoteError ? e : new RemoteError("layer_failed", e.message));
+    const run = t.host.invoke(slot, op, user, args, version, key).then((value) => ({ value }), (e) => e instanceof RemoteError ? e : new RemoteError("layer_failed", e.message));
     // Only calls that ran are remembered; a version_mismatch never ran, so the retry must run.
     if (key) { t.idem.set(key, run.then((r) => { if (r.code === "version_mismatch" || r.code === "overloaded") t.idem.delete(key); return r; })); if (t.idem.size > IDEM_KEEP) t.idem.delete(t.idem.keys().next().value); }
     const r = await run;

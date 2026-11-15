@@ -124,14 +124,14 @@ export class FleetAgent {
     if (!this.nonce) return;
     const nonce = this.nonce;
     this.deviceKey ??= await generateDeviceKey();
-    const body = { t: "hello", app: this.trust.app, host: this.id, channel: this.channel, version: this.host.version, keyring: this.trust.version, have: [...this.host.blobs.keys()] };
+    const body = { t: "hello", llp: 1, app: this.trust.app, host: this.id, channel: this.channel, version: this.host.version, keyring: this.trust.version, have: [...this.host.blobs.keys()] };
     const { sig } = await signDoc({ ...body, nonce }, this.deviceKey.privateKey, this.deviceKey.publicJwk);
     if (nonce === this.nonce) this.send({ ...body, auth: { key: this.deviceKey.publicJwk, sig } });
   }
   report(state, reason, extra = {}) {
     this.state = state;
     this.reason = reason;
-    this.send({ t: "status", host: this.id, channel: this.channel, version: this.host.version, keyring: this.trust.version, target: this.target, percent: this.percent, state, reason, ...extra });
+    this.send({ t: "status", host: this.id, channel: this.channel, version: this.host.version, keyring: this.trust.version, target: this.target, percent: this.percent, state, reason, running: this.host.running(), ...extra });
   }
   // Entry point for a wire transport: feed every message from the publisher here. Blobs are
   // fetched over the same stream with "want" (SPEC section 5).

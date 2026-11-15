@@ -26,7 +26,7 @@ const DATA = arg("--data", process.env.LLP_DATA ||
 
 for (const d of ["blobs", "apps", "keys"]) mkdirSync(join(DATA, d), { recursive: true });
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
-const writeAtomic = (file, text) => { writeFileSync(file + ".tmp", text); renameSync(file + ".tmp", file); };
+const writeAtomic = (file, text, mode) => { writeFileSync(file + ".tmp", text, mode ? { mode } : undefined); renameSync(file + ".tmp", file); };
 const readJson = (file, def) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return def; } };
 
 // ---------- trust ----------
@@ -35,7 +35,7 @@ const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
 const localKeyFile = join(DATA, "keys", "local.json");
 if (!existsSync(localKeyFile)) {
   const kp = await crypto.subtle.generateKey(ECDSA, true, ["sign", "verify"]);
-  writeAtomic(localKeyFile, JSON.stringify({ private: await crypto.subtle.exportKey("jwk", kp.privateKey), public: await crypto.subtle.exportKey("jwk", kp.publicKey) }));
+  writeAtomic(localKeyFile, JSON.stringify({ private: await crypto.subtle.exportKey("jwk", kp.privateKey), public: await crypto.subtle.exportKey("jwk", kp.publicKey) }), 0o600); // owner-only (SEC-02)
   log("created local publisher key");
 }
 const trustFile = join(DATA, "keys", "trusted.json");

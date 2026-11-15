@@ -19,7 +19,7 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 |---|---|---|
 | RT-01 fail closed without keys | Fixed | Behaviour change: a host with no keys now refuses everything. Development hosts must pass `allowUnsigned: true`. |
 | RT-02 bound versions, key-epoch ordering | Fixed | Versions must be safe integers at most one year ahead; fleet manifests carry `epoch` = keyring, so a rotation outranks a poisoned version. |
-| ST-02 durable server state | Fixed (single node) | Opt-in: pass `dataDir` to `ServerHost`; without it the host warns. Replication across machines and ST-03 are still open. |
+| ST-02 durable server state | Fixed (single node) | Opt-in: pass `dataDir` to `ServerHost`; without it the host warns. Replication across machines is still open. |
 | RT-03 authenticate hosts to the controller | Fixed | Behaviour change: fleet connections now start with a challenge, and hosts sign `hello` with a device key. `fleet-host.mjs` keeps the key in `--trust-dir`. Default enrollment is trust-on-first-use; `enrollment: "closed"` requires `enroll()`. |
 | RT-06 fleet controller counts | Fixed | Running counts per channel. 32,000 hosts: 0.3 s per round of reports, down from 10.7 s. Sharding the controller is still open. |
 | RT-04 per-slot state isolation | Fixed, opt-in | Manifests that declare `keys` get isolation (filtered replicas, writes checked). `__schema.*` is protected for everyone. Manifests without `keys` still share state, so existing apps keep working. |
@@ -30,6 +30,14 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 | AI-03 declared capabilities per slot | Fixed, opt-in | A signed `caps` field limits each slot's capabilities on clients and on the server. The AI approval screen shows capabilities measured in the shadow check and flags new ones. Manifests without `caps` keep every capability. |
 | PR-01 read rules on shared data | Fixed, partial | A signed `private` field makes `shared/users/<user>/...` readable only by that user. There's also an operator `canRead` hook. It's prefix ownership, not full access control lists, and server layers still see everything. |
 | SEC-01 freshness (timestamp role) | Fixed, opt-in | The controller signs short-lived freshness notes. Fleet hosts with freshness on refuse releases older than the note, report `freshness-expired`, and in `refuse` mode install nothing without a note. The notes use the release key, not a separate timestamp key, and plain hosts outside a fleet have none. |
+| GOV-01 protocol version field | Fixed | `"llp": 1` manifests are strict (unknown fields refused unless `x-`) and must declare `keys` and `caps`. Unversioned manifests keep v0 rules. |
+| SEC-02 key custody | Fixed, partial | Root keys are never saved beside the release key, and rotation loads them from offline storage. Key files are 0600. Behaviour change: the fleet CLI writes root keys to `<keys>-root` once, and `rotate` needs that folder. No keystore or PKCS#11 yet. |
+| ST-03 effect before its record | Fixed (with dataDir) | Stable `callId` for providers, effects recorded pending/done, finished effects reused on retry. |
+| CO-02 retire old server code | Fixed | Signed `overlap` (0 = at once). |
+| CO-04 state quotas | Fixed, partial | Host-wide `maxKeys` and `maxValueKb`. No per-slot quotas in the manifest. |
+| FL-03 lost hosts | Fixed | `sweepOffline()` plus a `lost` count. |
+| OB-01 running hashes in reports | Fixed | `running` in status, ack and nack. |
+| AI-05 old output in the prompt | Fixed, partial | The live source is framed as data. Diff highlighting of comments isn't built. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -120,7 +128,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** have the AI loop publish through `fleet.rollout()` with a small first step by default. Let apps ship property checks (invariants such as "the task count matches the number of task keys") that the shadow check and the hosts evaluate after each event.
 
-### AI-05 Old model output becomes part of the next prompt (Low, reasoned)
+### AI-05 Old model output becomes part of the next prompt (Low, reasoned) — FIXED (partial)
+
+**Fixed:** `firstRequest()` frames the live source as reference material whose comments are not instructions (test SEC67). Still open: highlighting comment changes in the approval diff.
 
 **In plain words:** the AI loop saves the live source and sends it to the model with every new request. Comments that an earlier answer left in the code are carried forward and can steer later answers.
 
@@ -152,7 +162,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** follow TUF's timestamp role: the controller signs a short-lived "latest is version N" note, and hosts refuse to run with a note older than a set limit (for example 24 hours for servers, or a softer warning on phones that are often offline).
 
-### SEC-02 Signing keys sit in plain files (High, reasoned)
+### SEC-02 Signing keys sit in plain files (High, reasoned) — FIXED (partial)
+
+**Fixed:** `FleetController.save()` never writes root keys next to the release key. A new controller exports them once to `--root-out` (default `<keys>-root`) to be moved offline, and `rotate <root-dir>` loads them only to sign. A controller that holds no root keys refuses to rotate and says why. Release keys, publisher keys, device keys and `llpd`'s local key are written owner-only (0600). An old layout with `root.json` next to the release key still loads, with a warning. Tests SEC57 and SEC58. Still open: OS keystore and PKCS#11 signers, and a written custody policy (who holds which root key and how many must sign).
 
 **In plain words:** the publisher, the AI loop, the fleet controller and `llpd` all save private keys as JSON files (`keys/publisher.json`, `keys/fleet/*.json`, the `llpd` data folder). The fleet controller even keeps root keys next to the release key. Anyone who copies those files can publish code to every device.
 
@@ -220,7 +232,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** put a storage interface under `Store` for the server role (a log plus snapshots, or an existing database). Write the idempotency record in the same transaction as the call's writes.
 
-### ST-03 An outside effect can happen without its record (Medium, design)
+### ST-03 An outside effect can happen without its record (Medium, design) — FIXED (with dataDir)
+
+**Fixed:** each capability call in a remote call with an idempotency id gets a stable `callId` (`user:idem#hop.n`), passed to providers so payment APIs can deduplicate. The server records the effect as pending before it runs and as done (with its result) afterwards, durably when `dataDir` is set. A re-run of the call reuses a done effect's result instead of running it again. A pending one (a crash mid-effect) runs again with the same `callId`, and the host logs it. Tests SEC59 and SEC60. Calls without an idempotency id get no record.
 
 **In plain words:** in a server call, a capability such as `charge` runs between two transactions. If the step after the charge fails, the charge has already happened, but the order record is never written.
 
@@ -240,7 +254,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** on the server role, answer `layer_failed` and restart the worker without reverting. Track failure rates per version and revert only above a threshold, reported as a fleet status so the controller can decide.
 
-### CO-02 After a fix, the old server code keeps answering for a while (Medium, reasoned)
+### CO-02 After a fix, the old server code keeps answering for a while (Medium, reasoned) — FIXED
+
+**Fixed:** a signed `"overlap"` (ms) shortens the window for one release, and `"overlap": 0` retires every older version's server code the moment the release commits. Calls for them get `version_mismatch`. Test SEC61.
 
 **In plain words:** to avoid breaking phones that haven't updated yet, the server keeps the previous version's code running for 30 seconds after a release. Each call says which version it wants, so during that window calls can still reach the old code, even when the new release exists to fix a security bug.
 
@@ -252,7 +268,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 A busy device can cut off an honest layer. The fix is already noted in the spec: use CPU-time accounting where the runtime offers it, and allow a per-manifest limit.
 
-### CO-04 State can grow without limit (Medium, known gap)
+### CO-04 State can grow without limit (Medium, known gap) — FIXED (partial)
+
+**Fixed:** host limits `maxKeys` (default 2,000,000) and `maxValueKb` (default 256), plus a 1,024-character key cap. A layer call that would pass them fails like a trap and keeps nothing (tests SEC65 and SEC66). Still open: quotas per slot declared in the manifest, and byte totals.
 
 **In plain words:** a layer can keep adding keys until the device or server runs out of memory or disk.
 
@@ -292,7 +310,9 @@ At that growth rate, one round of reports from a million devices would take hour
 
 **Fix:** make `--trust-dir` the default rather than an option. Refuse to start if the saved file exists but can't be read. Add SEC-01's freshness note so an out-of-date host notices.
 
-### FL-03 Offline hosts are remembered forever (Low, reasoned)
+### FL-03 Offline hosts are remembered forever (Low, reasoned) — FIXED
+
+**Fixed:** `sweepOffline(maxOfflineMs)` retires hosts offline longer than the limit into `fleet.lost`. `convergence()` reports `lost` separately, so a channel can be complete again, and a lost host that says hello again is tracked again. Tests SEC62 and SEC63. The caller decides when to sweep; there's no timer.
 
 **In plain words:** every host id ever seen stays in the controller's list, so one long-dead device keeps a channel from ever counting as "complete".
 
@@ -320,7 +340,9 @@ A tenant runs one call at a time (4,000 to 7,000 simple calls per second), and e
 
 ## 7. Observability
 
-### OB-01 Reports say "version N" while older code runs (Medium, reasoned)
+### OB-01 Reports say "version N" while older code runs (Medium, reasoned) — FIXED
+
+**Fixed:** fleet `status` and client `ack`/`nack` messages carry `running: { slot: hash }`, from `LiveHost.running()`. The controller and server host keep it per host or client (test SEC64).
 
 **In plain words:** after a rollback, a host still says it's on version N, even though one slot is running an older hash. Dashboards and support staff then see the wrong picture.
 
@@ -381,7 +403,9 @@ A standard needs this written down. Here is a first version. Each row names the 
 
 ## 10. Governance, versioning and interoperability
 
-### GOV-01 The protocol has no version of its own (High, design)
+### GOV-01 The protocol has no version of its own (High, design) — FIXED
+
+**Fixed:** manifests may carry a signed `"llp": 1`, and fleet and client `hello`s send `llp: 1`. A host refuses versions newer than it implements. Version 1 is strict: any unknown top-level field rejects the manifest (fields starting `x-` are ignorable), and a v1 manifest must declare `keys` and `caps`, so isolation (RT-04) and declared capabilities (AI-03) are the default for v1. Tests SEC55 and SEC56. Unversioned manifests are v0 and keep the v0 rules, so existing publishers are unaffected. The reference publishers still emit v0 because `keys` are app-specific. The server doesn't refuse old `hello`s yet.
 
 **In plain words:** manifests and messages don't say which version of LLP they follow. Once two versions exist, a host can't tell whether it understands a message.
 
