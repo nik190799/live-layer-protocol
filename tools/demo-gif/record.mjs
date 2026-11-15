@@ -72,7 +72,7 @@ await new Promise((r) => server.once("listening", r));
 const TASKS = [["Buy milk", 1], ["Call mom", 0], ["Ship the demo", 0]];
 const marks = [], fast = [];
 const t0 = Date.now();
-const mark = (name) => marks.push({ name, at: (Date.now() - t0) / 1000 });
+const mark = (name) => { marks.push({ name, at: (Date.now() - t0) / 1000 }); if (process.env.DEBUG) console.log("MARK", name); };
 let page, S;
 const todayStep = { cur: null };
 const today = new TodayPipeline({ root, work, ci: ciMode, port: todayPort, tasks: TASKS, onStep: (name, d) => todayStep.cb?.(name, d) });
