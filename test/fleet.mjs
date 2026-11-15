@@ -132,11 +132,11 @@ await fleet.waitFor(() => fleet.convergence("stable").pending === 0);
   await fleet.publish("stable", { main: H.v1, footer: H.stats });
   await fleet.waitForConvergence("stable");
   const c = fleet.convergence("stable");
-  check("F9 convergence report counts offline hosts separately and converges among the online ones", c.converged && c.offline === 3 && c.live === stable.length - 3, fmt(c));
+  check("F9 convergence report counts offline hosts separately and converges among the online ones, but is not complete", c.converged && !c.complete && c.offline === 3 && c.live === stable.length - 3, fmt(c));
   for (const n of away) n.connect();
   ok = await fleet.waitFor(() => { const c = fleet.convergence("stable"); return c.offline === 0 && c.converged; });
   const c2 = fleet.convergence("stable");
-  check("F10 hosts that were offline catch up on reconnect, and the report shows the whole channel live", ok && c2.offline === 0 && c2.live === stable.length && away.every((n) => n.host.slots.get("main").hash === H.v1), fmt(c2));
+  check("F10 hosts that were offline catch up on reconnect, and the report shows the whole channel live and complete", ok && c2.complete && c2.offline === 0 && c2.live === stable.length && away.every((n) => n.host.slots.get("main").hash === H.v1), fmt(c2));
 }
 
 // ---------- health-gated rollouts ----------
