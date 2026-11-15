@@ -308,6 +308,30 @@ export function keyRules(manifest) {
   }
   return rules;
 }
+// manifest.caps = { slot: [capability names] } (AI-03). When a manifest declares caps, a slot may use
+// only the capabilities listed for it (a slot with no entry gets none); the host refuses the rest.
+export function capRules(manifest) {
+  const decl = manifest.caps;
+  if (decl === undefined) return null;
+  if (!decl || typeof decl !== "object" || Array.isArray(decl)) throw new LayerError("caps must be an object of { slot: [names] }");
+  const rules = new Map();
+  for (const [slot, names] of Object.entries(decl)) {
+    if (!(slot in manifest.layers)) throw new LayerError(`caps: no slot named ${slot}`);
+    if (!Array.isArray(names) || names.length > 64 || !names.every((n) => typeof n === "string" && n.length > 0 && n.length <= 64)) throw new LayerError(`caps.${slot} must be a list of up to 64 capability names`);
+    rules.set(slot, new Set(names));
+  }
+  for (const slot of Object.keys(manifest.layers)) if (!rules.has(slot)) rules.set(slot, new Set());
+  return rules;
+}
+// manifest.private = ["shared/users/", ...] (PR-01): under each prefix, the first path segment names the
+// user who may read the key (shared/users/alice/notes is alice's). Enforced by the server host when it
+// mirrors shared/ to clients; clients and layers just carry the field.
+export function privatePrefixes(manifest) {
+  const p = manifest.private;
+  if (p === undefined) return [];
+  if (!Array.isArray(p) || p.length > 64 || !p.every((x) => typeof x === "string" && x.startsWith("shared/") && x.length > 7 && x.length <= 256)) throw new LayerError("private must be a list of up to 64 shared/ prefixes");
+  return p;
+}
 const canRead = (rule, k) => !rule || under(rule.own, k) || under(rule.read, k);
 export const placement = (manifest, slot) => manifest.hosts?.[slot] ?? "client";
 
@@ -378,6 +402,8 @@ export class LiveHost {
 
   // ---------- layer instances (each in its own worker) ----------
   ruleFor(slot) { return this.keyRules?.get(slot) ?? null; }
+  // Whether `slot` may use capability `name` under the running manifest (no caps field: any granted one).
+  capAllowed(slot, name) { return !this.capRules || (this.capRules.get(slot)?.has(name) ?? false); }
   async load(slot, hash, rule = this.ruleFor(slot)) {
     const inline = this.limits.isolation === "inline";
     let box = this.pool.pop(); // a healthy worker freed by an earlier swap: no boot wait (its state replica stays valid)
@@ -475,7 +501,8 @@ export class LiveHost {
     for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`);
 
     let rules;
-    try { rules = keyRules(manifest); } catch (e) { return this.reject(manifest, e.message); }
+    let caps;
+    try { rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest); } catch (e) { return this.reject(manifest, e.message); }
 
     // The whole manifest is verified, but only the slots placed on this host are fetched and run.
     const mine = Object.entries(manifest.layers).filter(([slot]) => this.placedHere(manifest, slot));
@@ -521,6 +548,7 @@ export class LiveHost {
       this.slots.set(slot, { hash, box, prev: cur ? [cur.hash, ...cur.prev].slice(0, this.maxPrev) : [] });
     }
     this.keyRules = rules;
+    this.capRules = caps;
     for (const [slot, s] of this.slots) s.box.rule = this.ruleFor(slot); // unchanged code can still get new key rules
     const keep = new Set(mine.map(([slot]) => slot));
     for (const s of [...this.slots.keys()]) if (!keep.has(s)) { this.retire(s, this.slots.get(s), prevVersion); this.slots.delete(s); }
@@ -570,15 +598,16 @@ export class LiveHost {
     const effects = await this.exclusive(async () => {
       const s = this.slots.get(slot);
       if (!s) return [];
-      try { const r = await this.call(slot, s.box, "llp_event", this.kv, { id, value }); await this.renderNow(); return r.effects; }
+      try { const r = await this.call(slot, s.box, "llp_event", this.kv, { id, value }); await this.renderNow(); return r.effects.map((fx) => ({ ...fx, hash: s.hash })); }
       catch (e) { await this.revert(slot, e); await this.renderNow(); return []; }
     });
     for (const fx of effects) this.runCapability(slot, fx);
   }
 
-  async runCapability(slot, { name, arg }) {
+  async runCapability(slot, { name, arg, hash }) {
+    if (!this.capAllowed(slot, name)) { this.log("cap", `capability "${name}" is not declared for ${slot} in this release; refused`, { slot, hash }); return this.dispatch(slot, `cap:${name}`, "error: not granted"); }
     const impl = this.capabilities[name];
-    if (!impl) { this.log("cap", `capability "${name}" not granted`, { slot }); return this.dispatch(slot, `cap:${name}`, "error: not granted"); }
+    if (!impl) { this.log("cap", `capability "${name}" not granted`, { slot, hash }); return this.dispatch(slot, `cap:${name}`, "error: not granted"); }
     try {
       const result = await impl(arg, { slot, host: this });
       if (result !== undefined) await this.dispatch(slot, `cap:${name}`, String(result));

@@ -381,6 +381,133 @@ function wire(fleet) {
     /untrusted data from the running app, not instructions/.test(fb) && !fb.includes("```ts ship") && fb.length < MAX_HOST_TEXT + 400 && fb.includes("> ignore previous"), `${fb.length} chars`);
 }
 
+// ---------- AI-03: capabilities declared per slot ----------
+{
+  const haptics = [], geos = [];
+  let ver = 0;
+  const host = new LiveHost({ app: "demo.tasks", trustedKeys: [key.publicJwk], limits: INLINE,
+    capabilities: { haptic: async (ms) => { haptics.push(ms); }, geo: async () => { geos.push(1); return "here"; } } });
+  host.kv.set("tasks.n", 1); host.kv.set("tasks.0.text", "x"); host.kv.set("tasks.0.done", 0);
+  const ship = (caps) => signed(host, { app: "demo.tasks", version: ++ver, layers: { main: ht, footer: hs }, order: ["main", "footer"], ...(caps ? { caps } : {}) });
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  const r1 = await ship({ main: [] });
+  await host.dispatch("main", "t:0"); await settle();
+  check("SEC40 with caps declared, a slot can't use a capability the release doesn't list for it, even one the host offers",
+    r1.ok && haptics.length === 0 && host.history.some((e) => /"haptic" is not declared for main/.test(e.msg)));
+  const r2 = await ship({ main: ["haptic"] });
+  await host.dispatch("main", "t:0"); await host.dispatch("main", "t:0"); await settle();
+  await host.dispatch("footer", "where"); await settle();
+  check("SEC41 a listed capability works; a slot left out of caps gets none", r2.ok && haptics.length === 1 && geos.length === 0 && host.history.some((e) => /"geo" is not declared for footer/.test(e.msg)), `haptic calls ${haptics.length}, geo calls ${geos.length}`);
+  const r3 = await ship({ ghost: ["geo"] }), r4 = await ship({ main: "haptic" });
+  check("SEC42 caps naming an unknown slot or not given as a list reject the manifest", !r3.ok && /no slot named ghost/.test(r3.reason) && !r4.ok, `${r3.reason} / ${r4.reason}`);
+  const r5 = await ship(null);
+  await host.dispatch("footer", "where"); await settle();
+  check("SEC42b releases without caps keep the v0 behaviour (every capability the host offers)", r5.ok && geos.length === 1);
+  host.close();
+
+  const { ServerHost } = await import("../host/server-host.mjs");
+  const pay = read("pay.wasm"), hp = await sha256(pay); blobs.set(hp, pay);
+  let charged = 0;
+  const srv = new ServerHost({ trustedKeys: [key.publicJwk], authenticate: () => "x", idleMs: 0, capabilities: { charge: async (a) => { charged++; return "ok " + a; } } });
+  const APP = "demo.caps", t = srv.tenant(APP);
+  const man = (v, caps) => ({ app: APP, version: v, layers: { pay: hp }, order: [], hosts: { pay: "server" }, caps });
+  await srv.offer(man(1, { pay: [] }), await signManifest(man(1, { pay: [] }), key.privateKey), fetchBlob);
+  const a = await srv.call(t, "alice", { id: 1, slot: "pay", op: "checkout", args: "500", version: 1 });
+  await srv.offer(man(2, { pay: ["charge"] }), await signManifest(man(2, { pay: ["charge"] }), key.privateKey), fetchBlob);
+  const b = await srv.call(t, "alice", { id: 2, slot: "pay", op: "checkout", args: "500", version: 2 });
+  check("SEC43 on the server, a slot can only use the capabilities its release declares (here: charge)",
+    !a.ok && /not granted/.test(a.error.message) && b.ok && charged === 1, `${a.error?.message} / ${b.value}`);
+  srv.close();
+
+  const { shadowCheck } = await import("../ai/check.mjs");
+  const chk = await shadowCheck({ base: { main: tasks, footer: stats }, order: ["main", "footer"], candidate: { slot: "main", bytes: stats } });
+  check("SEC44 the AI shadow check measures which capabilities the new version asks for, so the approval screen can flag new ones",
+    chk.ok && chk.caps.before.includes("haptic") && chk.caps.after.includes("geo") && !chk.caps.before.includes("geo"), JSON.stringify(chk.caps ?? chk.error));
+}
+
+// ---------- PR-01: read rules on shared/ ----------
+{
+  const { ServerHost } = await import("../host/server-host.mjs");
+  const { connectServer } = await import("../host/remote-client.mjs");
+  const sync = read("tasks_sync.wasm"), hsync = await sha256(sync); blobs.set(hsync, sync);
+  const users = new Map([["ta", "alice"], ["tb", "bob"], ["tc", "carol"]]);
+  const srv = new ServerHost({ trustedKeys: [key.publicJwk], authenticate: (tok) => users.get(tok) ?? null, idleMs: 0,
+    canRead: (user, k) => !k.startsWith("shared/admin/") });
+  const port = await srv.listen(0);
+  const APP = "demo.private", t = srv.tenant(APP);
+  const man = (v, priv) => ({ app: APP, version: v, layers: { sync: hsync }, order: [], hosts: { sync: "server" }, ...(priv ? { private: priv } : {}) });
+  await srv.offer(man(1), await signManifest(man(1), key.privateKey), fetchBlob);
+  t.host.kv.set("shared/users/alice/card", "alice-4242"); t.host.kv.set("shared/users/bob/card", "bob-1111"); t.host.kv.set("shared/news", "hello all"); t.host.kv.set("shared/admin/log", "ops only");
+  const until = async (f, ms = 3000) => { const t0 = Date.now(); while (!f() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 10)); return f(); };
+  const client = (tok) => { const h = new LiveHost({ app: APP, trustedKeys: [key.publicJwk] }); const link = connectServer(h, `ws://127.0.0.1:${port}`, { app: APP, token: tok }); return { h, link }; };
+  const bob = client("tb");
+  await until(() => bob.h.kv.has("shared/news") && bob.h.version === 1);
+  const before = bob.h.kv.get("shared/users/alice/card");
+  await srv.offer(man(2, ["shared/users/"]), await signManifest(man(2, ["shared/users/"]), key.privateKey), fetchBlob);
+  await until(() => !bob.h.kv.has("shared/users/alice/card"));
+  check("SEC45 once a release marks shared/users/ private, a client's mirror drops other users' keys and keeps its own",
+    before === "alice-4242" && !bob.h.kv.has("shared/users/alice/card") && bob.h.kv.get("shared/users/bob/card") === "bob-1111" && bob.h.kv.get("shared/news") === "hello all",
+    [...bob.h.kv.keys()].filter((k) => k.startsWith("shared/")).join(", "));
+  const alice = client("ta"), carol = client("tc");
+  await until(() => alice.h.kv.has("shared/news") && carol.h.kv.has("shared/news"));
+  t.host.kv.set("shared/users/alice/card", "alice-9999"); t.host.kv.set("shared/users/carol/card", "carol-5555"); srv.flush(t);
+  await until(() => alice.h.kv.get("shared/users/alice/card") === "alice-9999" && carol.h.kv.has("shared/users/carol/card"));
+  await new Promise((r) => setTimeout(r, 50));
+  const leak = [alice, bob, carol].flatMap(({ h }, i) => [...h.kv.keys()].filter((k) => k.startsWith("shared/users/") && !k.startsWith(`shared/users/${["alice", "bob", "carol"][i]}/`)));
+  check("SEC46 on connect and on every update, each user receives only their own private keys", leak.length === 0 && alice.h.kv.get("shared/users/alice/card") === "alice-9999" && carol.h.kv.get("shared/users/carol/card") === "carol-5555", leak.join(", ") || "no leaks");
+  check("SEC47 the operator's canRead hook narrows reads further (shared/admin/ reaches no client)", [alice, bob, carol].every(({ h }) => !h.kv.has("shared/admin/log")));
+  const bad = await signed(new LiveHost({ app: APP, trustedKeys: [key.publicJwk], limits: INLINE }), { ...man(3, ["users/"]), layers: { main: ht }, hosts: undefined });
+  check("SEC48 private prefixes must sit under shared/", !bad.ok && /private must be/.test(bad.reason), bad.reason);
+  for (const c of [alice, bob, carol]) { c.link.close(); c.h.close(); }
+  srv.close();
+}
+
+// ---------- SEC-01: freshness notes ----------
+{
+  const fleet = await FleetController.create({ app: "demo.tasks", freshnessTtlMs: 300 });
+  const h1 = await fleet.addBlob(tasks), h2 = await fleet.addBlob(stats);
+  await fleet.publish("stable", { main: h1 });
+  const old = fleet.channel("stable").current;
+  await fleet.publish("stable", { main: h2 });
+  const latest = fleet.channel("stable").current;
+  const fetchFleet = async (h) => fleet.blobs.get(h);
+  const mk = (mode = "warn") => { const host = new LiveHost({ limits: INLINE }); return { host, agent: new FleetAgent({ host, id: "f" + Math.random(), channel: "stable", trust: new TrustStore(structuredClone(fleet.keyring)), freshness: { mode } }) }; };
+
+  const w = wire(fleet); await w.hello("probe", await generateDeviceKey());
+  const order = w.got.filter((m) => m.t === "fresh" || m.t === "manifest").map((m) => m.t).join(",");
+  check("SEC49 the controller sends a signed freshness note with the current release (note first)", order === "fresh,manifest", order);
+
+  const a = mk();
+  const note = w.got.find((m) => m.t === "fresh");
+  const n1 = await a.agent.handle(note, fetchFleet);
+  const r1 = await a.agent.handle({ t: "manifest", ...old }, fetchFleet);
+  const r2 = await a.agent.handle({ t: "manifest", ...latest }, fetchFleet);
+  check("SEC50 a fresh install handed an old (validly signed) release from a cache refuses it once it holds a note, and takes the latest",
+    n1.state === "fresh" && r1.state === "rejected" && /older than .* vouched for/.test(r1.reason) && r2.state === "live", r1.reason);
+
+  const b = mk("refuse");
+  const r3 = await b.agent.handle({ t: "manifest", ...old }, fetchFleet);
+  check("SEC51 in refuse mode a host with no valid note installs nothing", r3.state === "rejected" && /no valid freshness note/.test(r3.reason) && b.host.version === 0, r3.reason);
+
+  const other = await generatePublisherKey();
+  const forged = { ...note.doc, expires: note.doc.expires + 365 * 864e5 };
+  const f1 = await b.agent.handle({ t: "fresh", doc: forged, sig: note.sig }, fetchFleet);
+  const f2 = await b.agent.handle({ t: "fresh", doc: forged, sig: await signManifest(forged, other.privateKey) }, fetchFleet);
+  const f3 = await b.agent.handle({ t: "fresh", doc: { ...note.doc, channel: "beta" }, sig: note.sig }, fetchFleet);
+  check("SEC52 a relay can't extend, forge or re-route a note", [f1, f2, f3].every((x) => x.state === "fresh-rejected"), [f1, f2, f3].map((x) => x.reason).join(" / "));
+
+  const sent = [];
+  a.agent.send = (m) => sent.push(m);
+  await new Promise((r) => setTimeout(r, 350));
+  const why = a.agent.checkFreshness(); a.agent.checkFreshness();
+  check("SEC53 when its note expires a host knows it's stale and reports it once", /expired/.test(why ?? "") && sent.filter((m) => m.state === "freshness-expired").length === 1, why);
+  fleet.startFreshness(50);
+  const later = []; const w2 = wire(fleet); w2.got.length = 0; await w2.hello("probe2", await generateDeviceKey());
+  await new Promise((r) => setTimeout(r, 120)); fleet.stopFreshness();
+  check("SEC54 the controller re-issues notes on a timer so online hosts stay fresh", w2.got.filter((m) => m.t === "fresh").length >= 2);
+  a.host.close(); b.host.close();
+}
+
 const failed = results.filter((x) => !x.pass).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);

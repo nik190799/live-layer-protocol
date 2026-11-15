@@ -97,9 +97,14 @@ export async function generateDeviceKey() {
   return { privateKey: kp.privateKey, publicJwk: await crypto.subtle.exportKey("jwk", kp.publicKey) };
 }
 export class FleetAgent {
-  constructor({ host, id, channel, trust, send = () => {}, deviceKey = null }) {
+  // freshness (SEC-01): { mode: "warn" | "refuse" }. With either mode the host keeps the newest valid
+  // freshness note, refuses releases older than the one the note names, and reports
+  // "freshness-expired" when its note runs out. "refuse" also won't install anything without a valid
+  // note (so a fresh install can't be handed an old release from a cache). Default: off.
+  constructor({ host, id, channel, trust, send = () => {}, deviceKey = null, freshness = null }) {
     if (!id) throw new Error("FleetAgent needs a stable host id");
-    Object.assign(this, { host, id, channel, trust, send, deviceKey });
+    Object.assign(this, { host, id, channel, trust, send, deviceKey, freshness });
+    this.fresh = null;
     this.nonce = null;
     host.trustedKeys = trust.releaseKeys();
     host.app ??= trust.app;            // pin the host to the keyring's app from the start (RT-05)
@@ -162,6 +167,7 @@ export class FleetAgent {
       if (missed) await this.hello();
       return r;
     }
+    if (msg.t === "fresh") return this.onFresh(msg);
     if (msg.t !== "manifest") return null;
     const m = msg.manifest;
     // Checked here, before anything else, so an unsigned message can't even produce a "skipped".
@@ -174,6 +180,13 @@ export class FleetAgent {
     // Versions are ordered as (epoch, version): a new keyring epoch restarts the order (RT-02).
     const cmp = this.host.compareVersion(m);
     if (cmp < 0) return { state: "stale", reason: `v${m.version} (epoch ${m.epoch ?? 0}) < running v${this.host.version} (epoch ${this.host.epoch})` };
+    if (cmp > 0) {
+      // Freshness (SEC-01): never install a release older than the newest one a valid note vouched for.
+      if (this.fresh && ((m.epoch ?? 0) < this.fresh.epoch || ((m.epoch ?? 0) === this.fresh.epoch && m.version < this.fresh.version)))
+        return this.reject(m, `v${m.version} is older than v${this.fresh.version}, the latest release the controller vouched for`);
+      const why = this.freshness?.mode === "refuse" ? this.staleReason() : null;
+      if (why && (!this.fresh || this.fresh.expires <= Date.now())) return this.reject(m, `no valid freshness note (${why}); refusing to install`);
+    }
     this.target = m.version;
     this.percent = m.rollout?.percent ?? 100;
     // A share increase re-signs the same version; hosts already on it have nothing to do.
@@ -184,5 +197,34 @@ export class FleetAgent {
     return r.ok ? this.done("live", `${r.ms} ms`, { ms: r.ms }) : this.done("rejected", r.reason);
   }
   reject(m, reason) { return this.done("rejected", reason, { target: m?.version }); }
+
+  async onFresh({ doc, sig }) {
+    if (!doc || doc.kind !== "llp-freshness" || doc.app !== this.trust.app || (doc.channel ?? null) !== (this.channel ?? null)) return { state: "fresh-rejected", reason: "note is for another app or channel" };
+    if (!Number.isSafeInteger(doc.version) || !Number.isSafeInteger(doc.epoch) || !Number.isFinite(doc.expires)) return { state: "fresh-rejected", reason: "malformed note" };
+    if (!(await this.trust.verifyManifest(doc, sig))) return { state: "fresh-rejected", reason: "note signature not trusted" };
+    if (doc.expires <= Date.now()) return { state: "fresh-rejected", reason: "note already expired" };
+    if (doc.epoch > this.trust.version) return { state: "fresh-rejected", reason: "note is from a keyring this host doesn't hold yet" };
+    const f = this.fresh;
+    if (f && (doc.epoch < f.epoch || (doc.epoch === f.epoch && (doc.version < f.version || (doc.version === f.version && doc.expires <= f.expires))))) return { state: "fresh-ignored", reason: "older than the note held" };
+    this.fresh = { epoch: doc.epoch, version: doc.version, expires: doc.expires };
+    this.reportedStale = false;
+    if (this.state === "rejected" && /freshness note/.test(this.reason ?? "")) await this.hello(); // ask for the release again
+    return { state: "fresh", until: doc.expires };
+  }
+  // Why this host should consider itself stale, or null. Only meaningful when freshness is on.
+  staleReason(now = Date.now()) {
+    if (!this.fresh) return "no freshness note yet";
+    if (this.fresh.expires <= now) return `freshness note expired ${Math.round((now - this.fresh.expires) / 1000)} s ago`;
+    if (this.host.compareVersion(this.fresh) < 0 && this.state !== "skipped") return `running v${this.host.version}, but v${this.fresh.version} is out`;
+    return null;
+  }
+  // Call on a timer: reports "freshness-expired" once when the note runs out (the controller or a
+  // dashboard can then see which hosts are cut off from new releases).
+  checkFreshness(now = Date.now()) {
+    if (!this.freshness) return null;
+    const why = this.staleReason(now);
+    if (why && this.fresh && this.fresh.expires <= now && !this.reportedStale) { this.reportedStale = true; this.report("freshness-expired", why); }
+    return why;
+  }
   done(state, reason, extra = {}) { this.report(state, reason, extra); return { state, reason, ...extra }; }
 }

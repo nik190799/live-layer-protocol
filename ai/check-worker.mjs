@@ -44,6 +44,10 @@ try {
   if (!r1.ok) throw new Error(`the current live layers did not start: ${r1.reason}`);
   await use(host, [candidate.slot], 3, { skip: /clear|delete|remove|reset/i });
   const stateBefore = host.kv.size;
+  // Capabilities each version asked for while it was used (the host grants none here, so every
+  // request is logged). The approval screen shows them, so a new one can't slip through (AI-03).
+  const capsIn = (hash) => [...new Set(log.filter((e) => e.kind === "cap" && e.slot === candidate.slot && e.hash === hash).map((e) => /capability "([^"]+)"/.exec(e.msg)?.[1]).filter(Boolean))].sort();
+  const liveHash = host.slots.get(candidate.slot)?.hash;
 
   const r2 = await host.apply(await manifest(2, { ...base, [candidate.slot]: candidate.bytes }), "", fetchBlob);
   if (!r2.ok) throw new Error(`swap refused: ${r2.reason}`);
@@ -57,7 +61,7 @@ try {
   const broken = out.find((s) => s.error);
   if (broken) throw new Error(`${broken.slot} failed to render: ${broken.error}`);
 
-  parentPort.postMessage({ ok: true, stateKeys: stateBefore, preview });
+  parentPort.postMessage({ ok: true, stateKeys: stateBefore, preview, caps: { before: capsIn(liveHash), after: capsIn(host.slots.get(candidate.slot)?.hash) } });
 } catch (e) {
   parentPort.postMessage({ ok: false, error: e.message });
 }

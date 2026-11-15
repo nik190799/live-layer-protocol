@@ -27,6 +27,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 | CO-01 no server-wide revert on one call | Fixed | The server restarts the worker on the same version. It reverts only after calls from 3 different users fail within 60 s (both configurable). |
 | AI-01 host text into the AI prompt | Fixed | The publisher, the AI stream and `ai-publish` listen on 127.0.0.1 by default (`--host` to opt out). A host's refusal reason reaches the model capped at 300 characters, quoted and labelled as untrusted. Hosts reporting back are still not authenticated on these single-publisher tools. |
 | SEC-06 size limits | Fixed, partial | `maxPayload` of 1 MB on the server host, fleet controller, publisher and AI stream. Layer downloads are capped at 16 MB (`limits.blobMb`). The cap is checked after a download, not while it streams, and a per-layer size field in the manifest isn't built. |
+| AI-03 declared capabilities per slot | Fixed, opt-in | A signed `caps` field limits each slot's capabilities on clients and on the server. The AI approval screen shows capabilities measured in the shadow check and flags new ones. Manifests without `caps` keep every capability. |
+| PR-01 read rules on shared data | Fixed, partial | A signed `private` field makes `shared/users/<user>/...` readable only by that user. There's also an operator `canRead` hook. It's prefix ownership, not full access control lists, and server layers still see everything. |
+| SEC-01 freshness (timestamp role) | Fixed, opt-in | The controller signs short-lived freshness notes. Fleet hosts with freshness on refuse releases older than the note, report `freshness-expired`, and in `refuse` mode install nothing without a note. The notes use the release key, not a separate timestamp key, and plain hosts outside a fleet have none. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -99,7 +102,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** compute a "what changed" box from the compiled layer and the shadow run (keys written, capabilities requested, schema change). Show it above the model's summary, and mark the model's summary as the model's claim.
 
-### AI-03 Layers get every capability the host offers (High, reasoned)
+### AI-03 Layers get every capability the host offers (High, reasoned) — FIXED (opt-in)
+
+**Fixed:** a signed `caps: { slot: [names] }` field (SPEC section 9). With it, `runCapability` on clients and the server's capability loop refuse any capability not listed for the slot, and log the refusal. The AI shadow check records which capabilities the live and the candidate version asked for, and `ai-publish` prints them, flagging new ones, above the model's summary, which is labelled as the model's claim. Tests SEC40 to SEC44. Still open: manifests without `caps` keep every capability, and the shadow check sees only capabilities that its clicks reach.
 
 **In plain words:** a host grants capabilities (haptics, location, payments, calls to the server) to every layer on it. A release can't say "this layer needs only haptics", so a reviewer can't see that a change starts using something new. The host can't refuse that capability for that layer alone.
 
@@ -137,7 +142,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** make `app` a required `LiveHost` option (the fleet host already does this through its keyring) and compare it on every apply.
 
-### SEC-01 A device can be kept on an old release (High, reasoned; known gap)
+### SEC-01 A device can be kept on an old release (High, reasoned; known gap) — FIXED (opt-in, fleet hosts)
+
+**Fixed:** freshness notes (SPEC 12.3.1). The controller sends a signed, short-lived "latest is (epoch, version)" note before each release and re-issues it on a timer. A fleet host with freshness on refuses any release older than its note, which covers a fresh install handed an old release. It reports `freshness-expired` once when the note runs out, and in `refuse` mode installs nothing without a valid note. Forged, extended and re-routed notes are refused. Tests SEC49 to SEC54. Still open: it's off by default, the note is signed by the release key rather than a separate timestamp key, plain hosts outside a fleet have no freshness, and what a stale host does beyond reporting is up to the embedder.
 
 **In plain words:** releases don't expire. A relay or cache that stops passing on new releases can keep devices on an old one indefinitely, and a fresh install will accept any old signed release as its first. The device has no way to notice it's stale.
 
@@ -331,7 +338,9 @@ Reports are unauthenticated, so they can't safely drive automatic decisions. RT-
 
 ## 8. Privacy and compliance
 
-### PR-01 Every user of an app can read all of its shared data (High, known gap)
+### PR-01 Every user of an app can read all of its shared data (High, known gap) — FIXED (partial)
+
+**Fixed:** a signed `private: ["shared/users/"]` field. Under each prefix, the next path segment names the one user who may read the key. The server host filters the mirror on `hello` and on every update, rebuilds every client's mirror when the rules change, and supports an operator `canRead(user, key, app)` hook. Tests SEC45 to SEC48 use three real clients over WebSocket. Still open: the rules are prefix ownership only (no groups or sharing), and PR-02 (export and delete per person) is not built.
 
 **In plain words:** on the server host, any signed-in user can mirror everything under `shared/` that they ask for, including other users' data.
 

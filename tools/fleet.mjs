@@ -22,8 +22,11 @@ export class FleetController {
   //   "tofu" (default): the first key that proves itself for an id is bound to it for good;
   //                     a later connection with another key is refused.
   //   "closed":         only ids registered with enroll(id, publicJwk) may join.
-  constructor({ app, rootKeys = [], keyrings, releaseKey, version = Date.now(), onEvent = () => {}, enrollment = "tofu", devices = {} }) {
-    Object.assign(this, { app, rootKeys, keyrings, releaseKey, version, onEvent, enrollment });
+  // freshnessTtlMs (SEC-01): how long a signed "latest is version N" note stays valid. Hosts that set
+  // a freshness limit treat a host without a valid note as stale (TUF's timestamp role).
+  constructor({ app, rootKeys = [], keyrings, releaseKey, version = Date.now(), onEvent = () => {}, enrollment = "tofu", devices = {}, freshnessTtlMs = 24 * 3600_000 }) {
+    Object.assign(this, { app, rootKeys, keyrings, releaseKey, version, onEvent, enrollment, freshnessTtlMs });
+    this.notes = new Map();     // channel -> { doc, sig } current freshness note
     this.blobs = new Map();     // hash -> bytes
     this.channels = new Map();  // name -> { current: {manifest, sig}, history: [{version, layers, order}] }
     this.hosts = new Map();     // id -> record from hello/status
@@ -88,8 +91,33 @@ export class FleetController {
     const ch = this.channel(channel);
     ch.current = { manifest, sig: await signManifest(manifest, this.releaseKey.privateKey) };
     this.recount(channel); // the target changed, so every host's class on this channel may have changed
-    for (const host of this.members.get(channel) ?? []) if (host.online) host.send({ t: "manifest", ...ch.current });
+    const n = await this.note(channel); // the note first, so a host that requires one can install the release
+    for (const host of this.members.get(channel) ?? []) if (host.online) { host.send({ t: "fresh", ...n }); host.send({ t: "manifest", ...ch.current }); }
   }
+
+  // ---------- freshness (SEC-01) ----------
+  // A short-lived note, signed by the release key: "on this channel, the latest release is (epoch, version),
+  // valid until expires". A relay can withhold releases but can't forge or extend a note.
+  async note(channel, { force = false } = {}) {
+    const cur = this.channels.get(channel)?.current?.manifest;
+    const have = this.notes.get(channel), now = Date.now();
+    if (!force && have && have.doc.version === (cur?.version ?? 0) && have.doc.epoch === (cur?.epoch ?? 0) && have.doc.expires - now > this.freshnessTtlMs / 2) return have;
+    const doc = { kind: "llp-freshness", app: this.app, channel, epoch: cur?.epoch ?? 0, version: cur?.version ?? 0, issued: now, expires: now + this.freshnessTtlMs };
+    const n = { doc, sig: await signManifest(doc, this.releaseKey.privateKey) };
+    this.notes.set(channel, n);
+    return n;
+  }
+  async refreshNote(channel, opts) {
+    const n = await this.note(channel, opts);
+    for (const host of this.members.get(channel) ?? []) if (host.online) host.send({ t: "fresh", ...n });
+  }
+  // Re-issue every channel's note on a timer, so online hosts never hold an expired one.
+  startFreshness(everyMs = this.freshnessTtlMs / 3) {
+    this.stopFreshness();
+    this.freshTimer = setInterval(() => { for (const ch of this.channels.keys()) this.refreshNote(ch, { force: true }).catch(() => {}); }, everyMs);
+    this.freshTimer.unref?.();
+  }
+  stopFreshness() { clearInterval(this.freshTimer); this.freshTimer = null; }
 
   // ---------- key rotation ----------
   // New release key: keyring n+1 lists only the new key, signed by the root. Every host gets the
@@ -183,7 +211,7 @@ export class FleetController {
     this.update(rec);
     for (const k of this.keyrings) if (k.doc.keyring > msg.keyring) conn.send({ t: "keyring", ...k });
     const cur = this.channels.get(msg.channel)?.current;
-    if (cur) conn.send({ t: "manifest", ...cur });
+    if (cur) { const n = await this.note(msg.channel); if (!conn.closed) { conn.send({ t: "fresh", ...n }); conn.send({ t: "manifest", ...cur }); } }
     this.tick();
   }
 
@@ -329,6 +357,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   fleet.onEvent = (e) => { if (e.kind !== "status") console.log("·", JSON.stringify(e)); };
   fleet.onEnroll = () => { writeFileSync(join(dir, "devices.json"), JSON.stringify(Object.fromEntries(fleet.devices))); };
   await serve(fleet, { port });
+  fleet.startFreshness(); // re-sign each channel's freshness note every ttl/3 (SEC-01)
   console.log(`fleet controller on ws://localhost:${port}; hosts pin ${join(dir, "keyring.pinned.json")}`);
   const layersOf = async (specs) => { const l = {}; for (const s of specs) { const [slot, f] = s.split("="); l[slot] = await fleet.addBlob(new Uint8Array(readFileSync(f))); } return l; };
   const { createInterface } = await import("node:readline");
