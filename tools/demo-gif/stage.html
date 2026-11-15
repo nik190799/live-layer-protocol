@@ -3,62 +3,85 @@
 <title>LLP demo stage</title>
 <!-- The recording stage for tools/demo-gif/record.mjs. The phone on the right is a real Live Host
      (host/llp-core.js, layers in Web Workers) connected to the real AI publisher over WebSocket.
-     The terminal on the left shows lines the publisher printed; the recorder copies them in. -->
+     The recorder moves the four steps on the left as the publisher reports each one. -->
 <style>
-:root { --bg: #0b0f15; --panel: #121822; --line: #243041; --ink: #e8edf5; --muted: #8b97aa;
-  --live: #3ddc97; --bad: #ff5d73; --warn: #ffb347; --accent: #7d8dff;
-  --app-bg: #ffffff; --app-ink: #18202b; --app-sub: #657085; --app-line: #e3e7ee; --app-press: #eef1f6; }
+:root { --bg: #0b0f15; --panel: #141b26; --line: #263244; --ink: #f2f5fa; --muted: #8592a6;
+  --live: #3ddc97; --bad: #ff5d73; --warn: #ffb347; --accent: #8b9bff; }
 * { box-sizing: border-box; }
-html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--ink); font: 16px/1.4 Inter, system-ui, sans-serif; }
-.cap { position: absolute; left: 40px; right: 40px; top: 22px; height: 112px; }
-.cap .step { font: 600 15px/1 "JetBrains Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
-.cap h1 { margin: 10px 0 0; font: 800 40px/1.08 "Inter Display", Inter, sans-serif; letter-spacing: -0.02em; }
-.cap h1 em { font-style: normal; color: var(--live); } .cap h1 s { text-decoration: none; color: var(--bad); }
-.cap p { margin: 8px 0 0; font-size: 20px; color: var(--muted); }
-.term { position: absolute; left: 40px; top: 150px; width: 690px; height: 545px; background: #06080c; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
-.term .bar { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 13px "JetBrains Mono", monospace; color: var(--muted); }
-.term .bar i { width: 11px; height: 11px; border-radius: 50%; background: #2b3647; display: inline-block; }
-.term .bar span { margin-left: 8px; }
-.lines { position: absolute; left: 0; right: 0; top: 36px; bottom: 0; padding: 14px 18px; font: 17px/1.5 "JetBrains Mono", monospace; font-variant-ligatures: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
-.lines div { white-space: pre-wrap; word-break: break-word; }
-.lines .ok { color: var(--live); } .lines .bad { color: var(--bad); } .lines .you { color: #fff; font-weight: 600; } .lines .dim { color: var(--muted); } .lines .live { color: var(--live); font-weight: 600; }
-.cursor::after { content: "▍"; color: var(--accent); }
-.phone { position: absolute; right: 40px; top: 150px; width: 470px; height: 545px; background: var(--panel); border: 1px solid var(--line); border-radius: 26px; padding: 14px; }
-.pbar { display: flex; justify-content: space-between; align-items: center; padding: 0 6px 10px; font: 600 14px "JetBrains Mono", monospace; color: var(--muted); }
-.chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); }
-.chip .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--live); }
-.chip.bad .dot { background: var(--bad); }
-.screen { background: var(--app-bg); color: var(--app-ink); border-radius: 16px; padding: 18px; height: 488px; overflow: hidden; transition: box-shadow .25s; position: relative; }
-.screen.swap { box-shadow: 0 0 0 4px var(--live); }
-.screen.held { box-shadow: 0 0 0 4px var(--warn); }
-.slot + .slot { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--app-line); }
-.u-col { display: flex; flex-direction: column; gap: 7px; }
+html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--ink); font: 18px/1.35 Inter, system-ui, sans-serif; }
+.left { position: absolute; left: 64px; top: 52px; width: 640px; }
+h1 { margin: 0; min-height: 132px; font: 800 56px/1.08 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; }
+h1 em { font-style: normal; color: var(--live); } h1 s { text-decoration: none; color: var(--bad); }
+.ask { margin-top: 22px; height: 64px; display: flex; align-items: center; gap: 14px; opacity: 0; transition: opacity .25s; }
+.ask.on { opacity: 1; }
+.ask .who { font: 700 15px/1 "JetBrains Mono", monospace; color: var(--muted); letter-spacing: .08em; }
+.ask .bubble { background: var(--accent); color: #0b0f15; font: 600 26px/1 Inter, sans-serif; padding: 16px 22px; border-radius: 22px 22px 22px 6px; }
+.ask .bubble.typing::after { content: "▍"; }
+.steps { margin-top: 34px; display: flex; flex-direction: column; gap: 14px; }
+.step { display: flex; align-items: center; gap: 18px; transition: opacity .2s; }
+.step .ic { width: 46px; height: 46px; border-radius: 50%; border: 3px solid var(--line); display: grid; place-items: center; font: 800 24px/1 Inter, sans-serif; color: var(--muted); flex: none; }
+.step .tx b { display: block; font: 700 27px/1.15 Inter, sans-serif; color: var(--muted); }
+.step .tx span { display: block; font: 500 18px/1.3 Inter, sans-serif; color: var(--muted); min-height: 23px; }
+.step.active .ic { border-color: var(--accent); color: var(--accent); animation: pulse .8s ease-in-out infinite alternate; }
+.step.active .tx b { color: var(--ink); }
+.step.ok .ic { border-color: var(--live); background: var(--live); color: #0b0f15; } .step.ok .ic::before { content: "✓"; }
+.step.ok .tx b { color: var(--ink); } .step.ok .tx span { color: var(--live); }
+.step.bad .ic { border-color: var(--bad); background: var(--bad); color: #0b0f15; } .step.bad .ic::before { content: "✕"; }
+.step.bad .tx b { color: var(--ink); } .step.bad .tx span { color: var(--bad); }
+.step.off { opacity: .35; } .step.off .tx b { text-decoration: line-through; }
+.step.ok .n, .step.bad .n { display: none; }
+@keyframes pulse { from { box-shadow: 0 0 0 0 rgba(139,155,255,.5); } to { box-shadow: 0 0 0 10px rgba(139,155,255,0); } }
+.foot { position: absolute; left: 64px; bottom: 30px; font: 500 15px "JetBrains Mono", monospace; color: var(--muted); }
+.phone { position: absolute; right: 64px; top: 40px; width: 460px; height: 640px; background: var(--panel); border: 2px solid var(--line); border-radius: 34px; padding: 14px; transition: border-color .3s, box-shadow .3s; }
+.phone.live { border-color: var(--live); box-shadow: 0 0 0 6px rgba(61,220,151,.25); }
+.phone.held { border-color: var(--warn); box-shadow: 0 0 0 6px rgba(255,179,71,.25); }
+.pbar { display: flex; justify-content: space-between; align-items: center; padding: 2px 10px 12px; font: 600 15px "JetBrains Mono", monospace; color: var(--muted); }
+.pbar .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--live); margin-right: 7px; }
+.screen { background: #fff; color: #18202b; border-radius: 22px; padding: 22px; height: 572px; overflow: hidden; position: relative; }
+.badge { position: absolute; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; transition: all .3s; background: #0b0f15; color: #fff; border-radius: 18px; padding: 14px 22px; text-align: center; white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.badge.on { opacity: 1; transform: translate(-50%, 0); }
+.badge b { display: block; font: 800 40px/1 "Inter Display", Inter, sans-serif; }
+.badge span { display: block; margin-top: 6px; font: 600 17px/1.2 Inter, sans-serif; color: #c9d2e0; }
+.badge.ok b { color: var(--live); } .badge.warn b { color: var(--warn); }
+.slot + .slot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e3e7ee; }
+.u-col { display: flex; flex-direction: column; gap: 9px; }
 .u-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .u-row > .u-input { flex: 1 1 140px; } .u-row > .u-toggle { flex: 1 1 auto; }
-.u-heading { font: 800 25px/1.1 "Inter Display", Inter, sans-serif; margin: 0; }
-.u-label { color: var(--app-sub); font-size: 15px; }
-.u-big { font: 800 24px/1 "Inter Display", Inter, sans-serif; }
-.u-button { font: 600 15px/1 Inter, sans-serif; padding: 8px 13px; border-radius: 10px; border: 1px solid var(--app-line); background: var(--app-press); color: var(--app-ink); }
+.u-heading { font: 800 30px/1.1 "Inter Display", Inter, sans-serif; margin: 0; }
+.u-label { color: #657085; font-size: 16px; }
+.u-big { font: 800 26px/1 "Inter Display", Inter, sans-serif; }
+.u-button { font: 600 16px/1 Inter, sans-serif; padding: 10px 14px; border-radius: 11px; border: 1px solid #e3e7ee; background: #eef1f6; color: #18202b; }
 .u-button[data-style="primary"] { background: #2c46e8; border-color: #2c46e8; color: #fff; }
-.u-input { font: 16px Inter, sans-serif; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--app-line); min-width: 0; }
-.u-toggle { display: flex; align-items: center; gap: 10px; padding: 5px 2px; border: 0; border-bottom: 1px solid var(--app-line); background: none; font: 17px Inter, sans-serif; color: var(--app-ink); text-align: left; width: 100%; }
-.u-toggle .box { width: 21px; height: 21px; border-radius: 6px; border: 2px solid var(--app-sub); flex: none; display: grid; place-items: center; }
+.u-input { font: 17px Inter, sans-serif; padding: 10px 12px; border-radius: 11px; border: 1px solid #e3e7ee; min-width: 0; }
+.u-toggle { display: flex; align-items: center; gap: 12px; padding: 7px 2px; border: 0; border-bottom: 1px solid #e3e7ee; background: none; font: 19px Inter, sans-serif; color: #18202b; text-align: left; width: 100%; }
+.u-toggle .box { width: 23px; height: 23px; border-radius: 7px; border: 2px solid #657085; flex: none; display: grid; place-items: center; }
 .u-toggle[aria-pressed="true"] .box { background: #12855a; border-color: #12855a; }
-.u-toggle[aria-pressed="true"] .box::after { content: ""; width: 9px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
-.u-toggle[aria-pressed="true"] .t { color: var(--app-sub); text-decoration: line-through; }
-.u-progress { height: 10px; border-radius: 99px; background: var(--app-press); overflow: hidden; }
+.u-toggle[aria-pressed="true"] .box::after { content: ""; width: 10px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+.u-toggle[aria-pressed="true"] .t { color: #657085; text-decoration: line-through; }
+.u-progress { height: 12px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
 .u-progress > i { display: block; height: 100%; background: #12855a; transition: width .3s; }
-.end { position: absolute; inset: 0; background: var(--bg); display: none; flex-direction: column; justify-content: center; padding: 0 90px; }
+.new { animation: glow 2.4s ease-out; border-radius: 8px; }
+@keyframes glow { 0%, 50% { box-shadow: 0 0 0 4px #3ddc97; background: rgba(61,220,151,.12); } 100% { box-shadow: 0 0 0 4px transparent; } }
+.end { position: absolute; inset: 0; background: var(--bg); display: none; flex-direction: column; justify-content: center; padding: 0 110px; }
 .end.on { display: flex; }
-.end h1 { font: 800 64px/1.05 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; margin: 0; }
-.end h1 em { font-style: normal; color: var(--live); }
-.end ul { margin: 34px 0 0; padding: 0; list-style: none; font: 24px/1.7 Inter, sans-serif; color: var(--ink); }
-.end li b { font-family: "JetBrains Mono", monospace; color: var(--live); }
-.end .repo { margin-top: 34px; font: 600 22px "JetBrains Mono", monospace; color: var(--muted); }
+.end h2 { font: 800 76px/1.04 "Inter Display", Inter, sans-serif; letter-spacing: -0.03em; margin: 0; }
+.end h2 em { font-style: normal; color: var(--live); }
+.end p { margin: 30px 0 0; font: 500 30px/1.4 Inter, sans-serif; color: #c9d2e0; }
+.end .repo { margin-top: 40px; font: 600 22px "JetBrains Mono", monospace; color: var(--muted); }
 </style>
-<div class="cap"><div class="step" id="step"></div><h1 id="title"></h1><p id="sub"></p></div>
-<div class="term"><div class="bar"><i></i><i></i><i></i><span>AI publisher · tools/ai-publish.mjs</span></div><div class="lines" id="lines"></div></div>
-<div class="phone"><div class="pbar"><span>Tasks app</span><span class="chip" id="chip"><span class="dot"></span><span id="chip-t">connecting</span></span></div><div class="screen" id="screen"></div></div>
+<div class="left">
+  <h1 id="title"></h1>
+  <div class="ask" id="ask"><span class="who">YOU → AI</span><span class="bubble" id="bubble"></span></div>
+  <div class="steps" id="steps">
+    <div class="step" id="s1"><div class="ic"><span class="n">1</span></div><div class="tx"><b>AI writes the code</b><span></span></div></div>
+    <div class="step" id="s2"><div class="ic"><span class="n">2</span></div><div class="tx"><b>Safety check runs it</b><span></span></div></div>
+    <div class="step" id="s3"><div class="ic"><span class="n">3</span></div><div class="tx"><b>You approve</b><span></span></div></div>
+    <div class="step" id="s4"><div class="ic"><span class="n">4</span></div><div class="tx"><b>Live in the running app</b><span></span></div></div>
+  </div>
+</div>
+<div class="foot">Real recording · Live Layer Protocol</div>
+<div class="phone" id="phone"><div class="pbar"><span><span class="dot"></span>Tasks app · running</span><span id="build">build 1</span></div>
+  <div class="screen" id="screen"></div><div class="badge" id="badge"><b></b><span></span></div></div>
 <div class="end" id="end"></div>
 <script type="module">
 import { LiveHost, b64 } from "/host/llp-core.js";
@@ -86,18 +109,22 @@ function make(n, slot) {
       for (const c of n.c || []) el.appendChild(make(c, slot)); return el;
   }
 }
+// After a swap, outline what the new version added (elements whose kind and text weren't on screen before).
+let prevKeys = null, glowNext = false;
+const keyOf = (el) => el.className + "|" + (el.dataset.id?.replace(/\d+$/, "") ?? "") + "|" + (el.children.length ? "" : el.textContent.replace(/\d+/g, "#"));
 function paint(slots) {
   const f = document.activeElement, keep = f?.id?.startsWith("in-") ? f.id : null;
   const frag = document.createDocumentFragment();
   for (const s of slots) { const box = document.createElement("div"); box.className = "slot"; box.appendChild(s.error ? document.createTextNode(s.error) : make(s.tree, s.slot)); frag.appendChild(box); }
   $("screen").replaceChildren(frag);
+  const els = [...$("screen").querySelectorAll(".slot:first-child [class^=u-]")];
+  if (glowNext && prevKeys) for (const el of els) if (!prevKeys.has(keyOf(el))) el.classList.add("new");
+  glowNext = false; prevKeys = new Set(els.map(keyOf));
   if (keep) $(keep)?.focus();
 }
 
-const events = [];
 let build = 0;
-const host = new LiveHost({ app: "demo.tasks", trustedKeys: [trusted], capabilities: { haptic: async () => "ok" },
-  onRender: paint, onLog: (e) => events.push({ kind: e.kind, msg: e.msg, at: performance.now() }) });
+const host = new LiveHost({ app: "demo.tasks", trustedKeys: [trusted], capabilities: { haptic: async () => "ok" }, onRender: paint, onLog: () => {} });
 const ws = new WebSocket(`ws://127.0.0.1:${q.get("port")}`);
 const pending = new Map();
 const send = (m) => ws.send(JSON.stringify(m));
@@ -106,19 +133,22 @@ ws.onmessage = async (ev) => {
   const msg = JSON.parse(ev.data);
   if (msg.t === "blob") pending.get(msg.hash)?.(b64.dec(msg.data));
   if (msg.t === "manifest") {
+    glowNext = build > 0;
     const r = await host.apply(msg.manifest, msg.sig, (h) => new Promise((res) => { pending.set(h, res); send({ t: "want", hashes: [h] }); }));
     send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, code: r.code, reason: r.reason });
-    if (r.ok) { build++; window.stage.swaps.push({ build, ms: r.ms, tasks: host.kv.get("tasks.n") ?? 0 }); $("chip-t").textContent = `build ${build}` + (build > 1 ? ` · swap ${r.ms < 10 ? r.ms.toFixed(1) : Math.round(r.ms)} ms` : " · running"); flash("swap"); }
+    if (r.ok) { build++; window.stage.swaps.push({ build, ms: r.ms, tasks: host.kv.get("tasks.n") ?? 0 }); $("build").textContent = `build ${build}`; }
   }
 };
-function flash(cls) { const s = $("screen"); s.classList.add(cls); setTimeout(() => s.classList.remove(cls), 1400); }
 
 window.stage = {
-  swaps: [], events, host,
-  caption(step, title, sub = "") { $("step").textContent = step; $("title").innerHTML = title; $("sub").textContent = sub; },
-  line(text, cls = "") { const d = document.createElement("div"); d.textContent = text; if (cls) d.className = cls; $("lines").appendChild(d); while ($("lines").children.length > 40) $("lines").firstChild.remove(); return d; },
-  edit(d, text) { d.textContent = text; }, cursor(d, on) { d.classList.toggle("cursor", on); },
-  held() { flash("held"); },
+  swaps: [], host,
+  title(html) { $("title").innerHTML = html; },
+  ask(text) { $("ask").classList.toggle("on", text !== null); $("bubble").textContent = text ?? ""; },
+  typing(on) { $("bubble").classList.toggle("typing", on); },
+  step(n, state, detail = "") { const s = $("s" + n); s.className = "step " + state; s.querySelector(".tx span").textContent = detail; },
+  steps(state) { for (let n = 1; n <= 4; n++) this.step(n, state); },
+  phone(state) { $("phone").className = "phone " + (state || ""); },
+  badge(big, small, cls = "ok") { const b = $("badge"); if (big === null) return b.classList.remove("on"); b.className = "badge on " + cls; b.firstChild.textContent = big; b.lastChild.textContent = small; },
   end(html) { $("end").innerHTML = html; $("end").classList.add("on"); },
   state() { return { n: host.kv.get("tasks.n") ?? 0, build, main: host.slots.get("main")?.hash?.slice(0, 8) }; },
 };
