@@ -2,6 +2,10 @@
 
 Stream code into a running app. Layers are signed, content-addressed WebAssembly modules; the host verifies, rehearses, and swaps them in place in milliseconds without losing state. See `SPEC.md`.
 
+![An AI change goes live in a running app in about 5 ms with its data kept, then a buggy change is caught by the shadow check and the fix goes live](docs/demo.gif)
+
+A real run, recorded by `node tools/demo-gif/record.mjs` (also as [docs/demo.mp4](docs/demo.mp4); the numbers it measured are in `docs/demo-run.json`).
+
 ## Layout
 
 | Path | What it is |
@@ -14,6 +18,7 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `layers/tasks-as/app.ts` | Main layer (AssemblyScript) |
 | `layers/stats-c/stats.c` | Footer layer (C) |
 | `layers/variants/` | v2 (migration), broken, crashing, and hanging/memory-hogging variants used in tests |
+| `tools/demo-gif/` | Re-records the demo GIF from a real run (Playwright + ffmpeg); see its README |
 | `test/run.mjs` | The 14 core proof tests (in-process) |
 | `test/sandbox.mjs` | 17 tests of the worker sandbox: infinite loops in view, event and migrate, memory blowup, UI flood, input ordering, inline mode |
 | `test/browser.mjs` | The sandbox in real Chromium (needs Playwright; not part of `npm test`) |
