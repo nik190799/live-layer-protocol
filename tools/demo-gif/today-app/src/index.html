@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/app.css">
+<div id="app"></div>
+<div id="banner" hidden>Reconnecting…</div>
+<div id="crash" hidden><b>Something went wrong.</b><span>The app crashed. Reload to try again.</span></div>
+<script src="/app.js"></script>
+<script>
+// Like most web apps: when the server has a new release, the page reloads to pick it up.
+(async () => {
+  let mine = null;
+  const ask = async () => { try { const v = await (await fetch("/version")).text(); document.getElementById("banner").hidden = true; if (mine === null) mine = v; else if (v !== mine) location.reload(); } catch { document.getElementById("banner").hidden = false; } };
+  await ask(); setInterval(ask, 150);
+})();
+// An uncaught error takes the app down, like an error boundary showing its fallback.
+addEventListener("error", () => { document.getElementById("crash").hidden = false; });
+</script>
