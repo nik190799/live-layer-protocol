@@ -19,6 +19,7 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 |---|---|---|
 | RT-01 fail closed without keys | Fixed | Behaviour change: a host with no keys now refuses everything. Development hosts must pass `allowUnsigned: true`. |
 | RT-02 bound versions, key-epoch ordering | Fixed | Versions must be safe integers at most one year ahead; fleet manifests carry `epoch` = keyring, so a rotation outranks a poisoned version. |
+| ST-02 durable server state | Fixed (single node) | Opt-in: pass `dataDir` to `ServerHost`; without it the host warns. Replication across machines and ST-03 are still open. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -185,7 +186,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** when the previous version's `llp_schema()` differs from the stored schema, don't revert. Restart the current version instead (the existing no-previous-version path) and report it. Later, the spec could allow an optional `llp_migrate_down`.
 
-### ST-02 Server data lives only in memory (Critical for backends, reasoned; known gap)
+### ST-02 Server data lives only in memory (Critical for backends, reasoned; known gap) — FIXED for one node
+
+**Fixed:** `ServerHost({ dataDir })` keeps each tenant's state, idempotency records and current release on disk: one fsync'd log line per commit, written before the reply, plus periodic snapshots. On restart the release's signature is re-checked and it runs on the restored state. Tests SEC11 to SEC17 restart a real server host, retry a call (answered from the record, not run again), survive a torn log line and compaction, and refuse a release edited on disk. Still open: it's opt-in (no `dataDir` means memory only, with a warning), it covers one machine (no replication), and ST-03 (an outside effect before its record) remains.
 
 **In plain words:** the server host keeps every tenant's shared data and its list of already-answered calls in one process's memory. A restart loses all of it. After a restart, a phone that retries a payment call could also get it run a second time.
 

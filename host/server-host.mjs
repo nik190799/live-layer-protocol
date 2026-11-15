@@ -11,6 +11,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
 import { LiveHost, sha256, b64 } from "./llp-core.js";
+import { DiskStore } from "./server-store.mjs";
 
 // Server layers work on bigger data than a phone's UI layer, so the defaults are looser. All are
 // per layer worker, so one tenant can't take another's budget.
@@ -147,11 +148,44 @@ export class ServerLiveHost extends LiveHost {
 
 // ---------- the server host: tenants, upstream, clients ----------
 export class ServerHost {
-  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, idleMs = 120000, limits = {}, maxPending = 256, onLog = () => {} } = {}) {
+  // dataDir: keep every tenant's state, idempotency records and current release on disk, so a
+  // restart loses nothing (ST-02). Without it, state lives in memory only and a warning is logged.
+  // fsync (default true): flush each commit to the disk before replying; false survives a process
+  // crash but not a power loss.
+  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, idleMs = 120000, limits = {}, maxPending = 256, onLog = () => {}, dataDir = null, fsync = true, compactEvery = 1000 } = {}) {
     if (!authenticate) throw new Error("server host needs an authenticate(token, app) function");
     Object.assign(this, { trustedKeys, capabilities, authenticate, windowMs, idleMs, limits, maxPending, onLog });
     this.tenants = new Map();
     this.upstreams = [];
+    this.disk = dataDir ? new DiskStore(dataDir, { fsync, compactEvery, idemKeep: IDEM_KEEP }) : null;
+    if (!this.disk) onLog({ kind: "warn", msg: "no dataDir: shared state and idempotency records are kept in memory only and are lost on restart" });
+    this.ready = this.disk ? this.restore() : Promise.resolve([]);
+  }
+
+  // Bring back every tenant that was on disk: saved state first, then its last release, re-verified.
+  async restore() {
+    const out = [];
+    for (const app of this.disk.apps()) {
+      const t = this.tenant(app);
+      const cur = t.log.current();
+      if (!cur) continue;
+      const r = await t.host.apply(cur.manifest, cur.sig, async (h) => { if (!this.disk.hasBlob(h)) throw new Error(`missing blob ${h.slice(0, 8)}`); return this.disk.getBlob(h); });
+      if (r.ok) { t.current = cur; for (const h of Object.values(cur.manifest.layers)) if (this.disk.hasBlob(h)) t.host.blobs.set(h, this.disk.getBlob(h)); }
+      this.onLog({ app, kind: r.ok ? "restore" : "error", msg: r.ok ? `restored v${cur.manifest.version} with ${t.host.kv.size} keys` : `could not restore: ${r.reason}` });
+      out.push({ app, ...r });
+    }
+    return out;
+  }
+
+  // Write everything changed since the last commit, with the given idempotency records, in one line.
+  persist(t, idem = []) {
+    if (!t.log) return;
+    const set = [], del = [];
+    for (const k of t.unsaved) t.host.kv.has(k) ? set.push([k, t.host.kv.get(k)]) : del.push(k);
+    t.unsaved.clear();
+    for (const [k, r] of idem) { t.idemSaved.set(k, r); if (t.idemSaved.size > IDEM_KEEP) t.idemSaved.delete(t.idemSaved.keys().next().value); }
+    t.log.append({ set, del, idem });
+    if (t.log.needsCompaction()) t.log.compact(t.host.kv, t.idemSaved);
   }
 
   tenant(app) {
@@ -164,8 +198,15 @@ export class ServerHost {
       capabilities: Object.fromEntries(Object.entries(this.capabilities).map(([n, f]) => [n, (arg, ctx) => f(arg, { ...ctx, app })])),
       onLog: (e) => this.onLog({ app, ...e }),
     });
-    t = { app, host, clients: new Set(), current: null, idem: new Map(), pending: 0, dirty: new Set() };
-    host.kv.onChange = (k) => { if (k.startsWith("shared/")) t.dirty.add(k); };
+    t = { app, host, clients: new Set(), current: null, idem: new Map(), pending: 0, dirty: new Set(), unsaved: new Set(), idemSaved: new Map(), log: null };
+    if (this.disk) {
+      t.log = this.disk.tenant(app);
+      const saved = t.log.load();
+      host.kv = saved.kv;
+      t.idemSaved = saved.idem;
+      for (const [k, r] of saved.idem) t.idem.set(k, Promise.resolve(r));
+    }
+    host.kv.onChange = (k) => { if (k.startsWith("shared/")) t.dirty.add(k); if (t.log) t.unsaved.add(k); };
     this.tenants.set(app, t);
     return t;
   }
@@ -176,17 +217,20 @@ export class ServerHost {
     const { host } = t;
     // Hold every blob (client slots too) so clients can fetch them here. Content addressing means
     // the relay can't change them: clients check each hash.
-    if (manifest.version > host.version) {
+    if (host.compareVersion(manifest) > 0) {
       for (const h of new Set(Object.values(manifest.layers))) {
         if (host.blobs.has(h)) continue;
         const bytes = await fetchBlob(h);
         if ((await sha256(bytes)) !== h) return host.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`);
         host.blobs.set(h, bytes);
+        this.disk?.putBlob(h, bytes);
       }
     }
     const r = await host.apply(manifest, sig, fetchBlob);
     if (!r.ok) return r; // clients stay on the version the server still serves
     t.current = { manifest, sig };
+    this.persist(t);                   // a migration's writes are on disk before the release is
+    t.log?.setCurrent(manifest, sig);
     this.flush(t);       // shared/ keys written by a migration reach clients before the new code
     for (const c of t.clients) send(c.ws, { t: "manifest", manifest, sig });
     return r;
@@ -196,7 +240,8 @@ export class ServerHost {
   subscribe(url, app) {
     const pending = new Map();
     let ws, closed = false;
-    const open = () => {
+    const open = async () => {
+      await this.ready;
       ws = new WebSocket(url);
       const host = this.tenant(app).host;
       ws.onopen = () => send(ws, { t: "hello", app, version: host.version, have: [...host.blobs.keys()] });
@@ -212,13 +257,14 @@ export class ServerHost {
       ws.onerror = () => {};
     };
     open();
-    const sub = { close: () => { closed = true; ws.close(); } };
+    const sub = { close: () => { closed = true; ws?.close(); } };
     this.upstreams.push(sub);
     return sub;
   }
 
   // Accept client hosts.
-  listen(port = 0) {
+  async listen(port = 0) {
+    await this.ready; // clients never see a tenant before its saved state is back
     this.wss = new WebSocketServer({ port });
     this.wss.on("connection", (ws) => {
       // Messages after a hello wait for it (auth may be async), so a reconnecting client can send
@@ -277,6 +323,10 @@ export class ServerHost {
     if (key) { t.idem.set(key, run.then((r) => { if (r.code === "version_mismatch" || r.code === "overloaded") t.idem.delete(key); return r; })); if (t.idem.size > IDEM_KEEP) t.idem.delete(t.idem.keys().next().value); }
     const r = await run;
     t.pending--;
+    // Durable before the reply: the call's writes and its idempotency record land in one log line.
+    const plain = r.code ? { code: r.code, message: r.message, ...(r.serverVersion ? { serverVersion: r.serverVersion } : {}) } : { value: r.value };
+    try { this.persist(t, key && r.code !== "version_mismatch" && r.code !== "overloaded" ? [[key, plain]] : []); }
+    catch (e) { this.onLog({ app: t.app, kind: "error", msg: `could not save state: ${e.message}` }); return reply(id, new RemoteError("unavailable", "the server could not save this call's result; retry with the same id")); }
     this.flush(t);
     return reply(id, r);
   }
