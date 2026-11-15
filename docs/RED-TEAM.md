@@ -256,3 +256,61 @@ At that growth rate, one round of reports from a million devices would take hour
 A tenant runs one call at a time (4,000 to 7,000 simple calls per second), and each busy tenant's layer worker costs about 9 MB. One user can fill a tenant's queue of 256 calls and push everyone else into `overloaded`.
 
 **Fix:** add per-user queue limits inside a tenant, read-only concurrent calls, and a way for many small tenants to share a worker.
+
+## 6. Coverage of app types
+
+| App type | Works today | What's missing |
+|---|---|---|
+| Forms and list UIs | Yes (11 UI kinds) | Typed component catalogue, accessibility labels, text input other than plain strings |
+| Rich or custom UI (charts, maps, editors) | No | A canvas or GPU surface (SPEC section 8 names it as the direction) |
+| Games | Partly (the hotfix case study) | A frame loop: LLP has no tick or animation event and calls are capped at 100 ms. It also lacks input streams and audio |
+| Backends and APIs | Partly | Durable state (ST-02), several server nodes, concurrency (PERF-01), HTTP ingress that doesn't go through a client |
+| IoT and embedded | No | A host for small devices (the host needs JavaScript and workers today). A WAMR or wasm3 host in C would be needed |
+| Offline-first and peer-to-peer | Partly | Client calls queue offline, but there's no conflict-free merge for data edited on two devices and no peer-to-peer release sharing with freshness checks (SEC-01) |
+| Kernel, drivers and config | No | Out of scope for LLP. Config changes need their own shadow check (the Fastly case study) |
+
+**Plain-language takeaway:** LLP is ready for small UIs and simple server logic today. "Every app" needs a richer UI surface, a frame loop, a small-device host and durable server state.
+
+## 7. Observability
+
+### OB-01 Reports say "version N" while older code runs (Medium, reasoned)
+
+**In plain words:** after a rollback, a host still says it's on version N, even though one slot is running an older hash. Dashboards and support staff then see the wrong picture.
+
+**Fix:** report the running hash for each slot alongside the version, both in `status` messages and in `ack`.
+
+### OB-02 Fleet reports can't be trusted (Medium, known gap; see RT-03)
+
+Reports are unauthenticated, so they can't safely drive automatic decisions. RT-03's fix covers this.
+
+### OB-03 No standard traces or metrics (Medium, design)
+
+**In plain words:** there's no common way to see "which release was this user on when it broke", in a format existing tools can read.
+
+**Fix:** define OpenTelemetry attributes (`llp.app`, `llp.version`, `llp.slot`, `llp.hash`) on every call and event, and export swap, rollback and rejection counts as metrics. Keep the layer logs from a failed call instead of dropping them (a known gap).
+
+## 8. Privacy and compliance
+
+### PR-01 Every user of an app can read all of its shared data (High, known gap)
+
+**In plain words:** on the server host, any signed-in user can mirror everything under `shared/` that they ask for, including other users' data.
+
+**Fix:** add read rules per key prefix, for example `shared/users/<user>/` readable only by that user, checked in `ServerHost.flush()` and on `hello`. Without this, LLP can't hold personal data under GDPR or similar laws.
+
+### PR-02 Data can't be found, exported or deleted per person (High, design)
+
+**In plain words:** privacy laws give people the right to see and delete their data. LLP's key/value store has no notion of whose data a key is.
+
+**Fix:** make key ownership part of the schema (an owner prefix), and give the server host export and delete-by-owner operations with an audit log.
+
+### PR-03 Data on disk isn't encrypted (Medium, reasoned)
+
+`llpd` saves each app's state as plain JSON in the user's data folder, and browsers save it in local storage.
+
+**Fix:** encrypt at rest with a key from the OS keystore, and let apps mark keys as sensitive.
+
+### PR-04 Changing code without an app-store review (Medium, design)
+
+**In plain words:** regulators and platform owners want to know who changed what, and when. LLP can change code many times a day.
+
+**Fix:** keep a signed, append-only release log (who signed, what changed, which capabilities) that can be published, in the style of Sigstore's Rekor transparency log. Google Play's interpreter rule probably covers LLP, but that is not yet verified (see the case-studies memory).
