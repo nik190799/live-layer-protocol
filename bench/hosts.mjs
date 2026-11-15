@@ -48,7 +48,7 @@ for (const tasks of SIZES) {
   for (let i = 0; i < 20; i++) { const t1 = performance.now(); await t.host.invoke("sync", "count", "bench", "", ver); lat2.push(performance.now() - t1); }
   // A client connecting mirrors shared/ (all of it, or only the prefixes it watches), then swaps.
   const connect = async (watch) => {
-    const c = new LiveHost({ trustedKeys: [key.publicJwk] });
+    const c = new LiveHost({ app: "bench", trustedKeys: [key.publicJwk] });
     const t2 = performance.now();
     const link = connectServer(c, `ws://127.0.0.1:${port}`, { app: "bench", token: auth.issue("u", "bench"), watch });
     const ok = await until(() => c.version === ver || c.history.some((h) => h.kind === "reject"), 30000);
@@ -73,7 +73,7 @@ for (const tasks of SIZES) {
   const port = await server.listen(0);
   const [m1, s1] = await manifest({ main: shared, sync: sync1 }, { main: "client", sync: "server" });
   await server.offer(m1, s1, fetchBlob);
-  const clients = Array.from({ length: N }, (_, i) => { const h = new LiveHost({ trustedKeys: [key.publicJwk] }); return { h, link: connectServer(h, `ws://127.0.0.1:${port}`, { app: "bench", token: auth.issue("u" + i, "bench") }) }; });
+  const clients = Array.from({ length: N }, (_, i) => { const h = new LiveHost({ app: "bench", trustedKeys: [key.publicJwk] }); return { h, link: connectServer(h, `ws://127.0.0.1:${port}`, { app: "bench", token: auth.issue("u" + i, "bench") }) }; });
   await until(() => clients.every((c) => c.h.version === ver));
   const rounds = [];
   for (let round = 0; round < 5; round++) {

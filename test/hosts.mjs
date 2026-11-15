@@ -79,7 +79,7 @@ const st = server.tenant(APP);
 // ---------- client hosts (two users) ----------
 function client(user, opts = {}) {
   const c = { screen: "", rendered: 0 };
-  c.host = new LiveHost({ trustedKeys: [key.publicJwk], onRender: (t) => { c.screen = t.map((s) => s.error ? `!! ${s.error}` : textOf(s.tree)).join(" | "); c.rendered++; } });
+  c.host = new LiveHost({ app: APP, trustedKeys: [key.publicJwk], onRender: (t) => { c.screen = t.map((s) => s.error ? `!! ${s.error}` : textOf(s.tree)).join(" | "); c.rendered++; } });
   c.link = connectServer(c.host, srvUrl, { app: APP, token: opts.token ?? auth.issue(user, APP), upgradeWaitMs: 2000, ...opts });
   return c;
 }
@@ -262,7 +262,7 @@ rogue.on("connection", (ws) => ws.on("message", (raw) => {
   const m = JSON.parse(raw);
   if (m.t === "hello") { const real = latest.get(APP); ws.send(JSON.stringify({ t: "manifest", manifest: { ...real.manifest, version: real.manifest.version + 1, layers: { ...real.manifest.layers, main: L.broken } }, sig: real.sig })); }
 }));
-const victim = new LiveHost({ trustedKeys: [key.publicJwk] });
+const victim = new LiveHost({ app: APP, trustedKeys: [key.publicJwk] });
 const vl = connectServer(victim, `ws://127.0.0.1:${rogue.address().port}`, { app: APP, token: "x" });
 await until(() => victim.history.some((h) => h.kind === "reject"));
 check("H28 a compromised server host can't alter code: clients verify the publisher's signature", victim.version === 0 && /signature not trusted/.test(victim.history.at(-1).msg));

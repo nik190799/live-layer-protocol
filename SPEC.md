@@ -19,7 +19,7 @@ Ship code into a **running** application as a stream of small, signed, content-a
 
 1. **State lives in the host, never in a layer.** Layers read and write a host-owned key/value store. Swapping code therefore cannot lose state.
 2. **Content addressing.** A layer is identified by the SHA-256 of its bytes. Hosts fetch only hashes they don't already hold.
-3. **Signed, monotonic manifests.** Only manifests signed by a trusted publisher key, with a version greater than the running one, are accepted.
+3. **Signed, monotonic manifests.** Only manifests signed by a trusted publisher key, for the host's own app, with a version greater than the running one and within range, are accepted. A host with no trusted keys refuses everything (fail closed).
 4. **Verify before live.** A new layer is instantiated in a shadow copy of state, migrated, and rendered once. Only a clean result is committed.
 5. **All-or-nothing commits.** A manifest that changes several layers commits all of them or none.
 6. **Transactional events.** If a layer traps or breaks a sandbox limit while handling an event, nothing it wrote is kept and the layer is reverted to its previous version.
@@ -40,6 +40,10 @@ Ship code into a **running** application as a stream of small, signed, content-a
 
 Signature: ECDSA P-256 / SHA-256 over the **canonical JSON** (sorted keys, no whitespace), base64-encoded, sent alongside the manifest. Hosts hold a list of trusted publisher public keys (JWK).
 
+`version` must be a positive safe integer (`Number.isSafeInteger`, at most 2^53 − 1). An optional `epoch` (a non-negative safe integer, default 0) orders releases ahead of `version`: manifests are compared as the pair `(epoch, version)`. A host accepts an epoch only up to the one it trusts: a fleet host's limit is the number of the keyring it holds (section 12.4), and a plain host's limit is 0. The epoch exists so that a key rotation can outrank any version a leaked key signed.
+
+**Host configuration.** A host is created with its `app` name and its trusted keys. It refuses every manifest when the key list is empty, and refuses manifests for any other app from the very first one. The only way to run unsigned manifests is the explicit development mode `allowUnsigned: true` (used by the AI loop's shadow check and by tests), which logs a warning when the host starts.
+
 ## 5. Stream messages
 
 Transport-agnostic JSON messages. Reference transports: WebSocket (Node host), BroadcastChannel / in-page (browser host). QUIC/WebTransport are natural next transports.
@@ -54,8 +58,8 @@ Transport-agnostic JSON messages. Reference transports: WebSocket (Node host), B
 
 ## 6. Swap algorithm (host)
 
-1. Verify signature against trusted keys → else reject.
-2. Reject if `version ≤ running version` (anti-rollback/replay).
+1. Unless the host runs with `allowUnsigned: true`: reject if it has no trusted keys or no pinned app, then verify the signature against the trusted keys → else reject. Reject a manifest for a different app.
+2. Version rules (anti-rollback/replay and anti-freeze): reject unless `version` is a positive safe integer and `epoch` (default 0) is a non-negative safe integer no higher than the host's trusted epoch; reject if `(epoch, version) ≤ (running epoch, running version)`; reject if `version` is more than one year of milliseconds (`MAX_VERSION_AHEAD_MS`) ahead of the larger of the running version (same epoch) and the host's clock. So small counters and millisecond timestamps both work, and one enormous version can't leave no higher version to publish. (A device whose clock is more than a year slow refuses timestamp versions; `maxVersionAheadMs` can be raised for such hosts.)
 3. Fetch missing blobs; reject any whose SHA-256 ≠ declared hash.
 4. Open a copy-on-write shadow of state (writes stay in the shadow; cost is proportional to keys written, not store size).
 5. For each changed slot placed on this host (10.1): instantiate → if `llp_schema()` differs from the stored schema, call `llp_migrate(from)` → call `llp_view()` and require a balanced UI tree (a headless server layer may omit `llp_view`).
@@ -255,4 +259,6 @@ Signatures go alongside the document as `[{ "kid", "sig" }]`, where `kid` is the
 - **Root rotation:** keyring n+1 with a new `root`, signed by old and new roots. Afterwards the old root keys can't issue keyrings.
 - A host must store its latest accepted keyring (`host/fleet-host.mjs --trust-dir`). One that restarts from the pinned keyring trusts revoked keys again until it reconnects to the controller. `test/fleet.mjs` W6 shows both cases.
 
-The core's `trustedKeys` becomes the keyring's release keys; the agent also checks the signature itself before evaluating channel or share.
+The core's `trustedKeys` becomes the keyring's release keys; the agent also checks the signature itself before evaluating channel or share. The agent pins the host to the keyring's `app` and sets the host's trusted epoch to the keyring number.
+
+- **Epochs:** the controller stamps every manifest with `epoch` = its current keyring number. On a release key rotation it re-signs each channel's current manifest with the new key and the new epoch. A host that a leaked key pushed to a high version therefore moves back to the real release as soon as it accepts the new keyring, and the leaked key's release is refused from then on (its key is no longer trusted).

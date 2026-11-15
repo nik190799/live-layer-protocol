@@ -252,6 +252,11 @@ async function verifyManifest(manifest, sig, jwk) {
 
 class LayerError extends Error {}
 
+// A manifest version may be at most this far ahead of max(running version, now). Versions that are
+// small counters or millisecond timestamps are never near it; one enormous version is refused
+// instead of leaving no higher version to publish (red-team RT-02).
+const MAX_VERSION_AHEAD_MS = 365 * 24 * 3600 * 1000;
+
 // ---------- host state ----------
 // A Map with a change log. Each layer worker holds a replica of the store; the log lets the host send
 // a worker only the keys that changed since its last call instead of copying the whole store per call
@@ -495,8 +500,14 @@ const placement = (manifest, slot) => manifest.hosts?.[slot] ?? "client";
 class LiveHost {
   // role: "client" (default: UI, local state, device capabilities) or "server" (headless; runs the
   // slots a manifest places on "server"; owns keys under shared/). See SPEC section 10.
-  constructor({ trustedKeys = [], capabilities = {}, onRender = () => {}, onLog = () => {}, maxPrev = 5, limits = {}, role = "client" } = {}) {
+  // app: the one app this host runs (required unless allowUnsigned); manifests for any other app are refused.
+  // allowUnsigned: development/shadow-check mode only. Without it, a host with no trusted keys
+  // refuses every manifest (fail closed), instead of skipping the signature check.
+  // maxVersionAheadMs: how far a manifest version may run ahead of max(running version, now).
+  constructor({ trustedKeys = [], capabilities = {}, onRender = () => {}, onLog = () => {}, maxPrev = 5, limits = {}, role = "client", app = null, allowUnsigned = false, maxVersionAheadMs = MAX_VERSION_AHEAD_MS } = {}) {
     this.trustedKeys = trustedKeys;      // publisher public keys (JWK)
+    this.allowUnsigned = allowUnsigned === true;
+    this.maxVersionAheadMs = maxVersionAheadMs;
     this.capabilities = capabilities;    // name -> async (arg, ctx) => string result
     this.onRender = onRender;
     this.onLog = onLog;
@@ -507,12 +518,33 @@ class LiveHost {
     this.blobs = new Map();              // content-addressed store: hash -> bytes
     this.slots = new Map();              // slot -> { hash, box, prev: [hash...] }
     this.version = 0;
-    this.app = null;
+    this.epoch = 0;                      // versions are ordered as (epoch, version); see SPEC section 6 step 2
+    this.maxEpoch = 0;                   // highest epoch a manifest may claim (a fleet host raises it with each trusted keyring)
+    this.app = app;
     this.manifest = null;
     this.history = [];
     this.spare = null;                   // a pre-spawned worker, so a swap doesn't wait for worker boot
     this.pool = [];                      // healthy workers freed by swaps, reused before the spare
     this.queue = Promise.resolve();      // apply / render / dispatch run one at a time, as they did when synchronous
+    if (this.allowUnsigned) this.log("security", "allowUnsigned is on: manifests are NOT signature-checked. Use this only for development and shadow checks.");
+  }
+
+  // Where a manifest sits relative to the running one: -1 older or same-as-running replay, 0 same, 1 newer.
+  compareVersion(m) {
+    const e = m?.epoch ?? 0;
+    if (e !== this.epoch) return e > this.epoch ? 1 : -1;
+    return m.version === this.version ? 0 : m.version > this.version ? 1 : -1;
+  }
+  // Why a manifest's version fields are unusable, or null when they're fine (SPEC section 6 step 2).
+  versionProblem(m) {
+    const v = m.version, e = m.epoch ?? 0;
+    if (!Number.isSafeInteger(v) || v < 1) return `version must be a positive safe integer, got ${JSON.stringify(v)}`;
+    if (!Number.isSafeInteger(e) || e < 0) return `epoch must be a non-negative safe integer, got ${JSON.stringify(e)}`;
+    if (e > this.maxEpoch) return `epoch ${e} is beyond the trusted keyring (${this.maxEpoch})`;
+    if (this.compareVersion(m) <= 0) return e < this.epoch ? `stale epoch ${e} < ${this.epoch}` : `stale version ${v} ≤ ${this.version}`;
+    const base = Math.max(e === this.epoch ? this.version : 0, Date.now());
+    if (v > base + this.maxVersionAheadMs) return `version ${v} is too far ahead (limit ${base + this.maxVersionAheadMs}); it would block every later release`;
+    return null;
   }
 
   // Code outside the host may assign a plain Map (e.g. state restored from disk); keep it a Store.
@@ -602,13 +634,17 @@ class LiveHost {
   async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
     if (!this.headless && this.limits.isolation !== "inline") this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
-    if (this.trustedKeys.length) {
+    if (!manifest || typeof manifest !== "object" || !manifest.layers || typeof manifest.layers !== "object") return this.reject(manifest ?? {}, "malformed manifest");
+    if (!this.allowUnsigned) {
+      if (!this.trustedKeys?.length) return this.reject(manifest, "no trusted keys configured; refusing every manifest (fail closed)");
       let ok = false;
-      for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k)) { ok = true; break; }
+      for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k).catch(() => false)) { ok = true; break; }
       if (!ok) return this.reject(manifest, "signature not trusted");
+      if (!this.app) return this.reject(manifest, "host has no app pinned; refusing (pass the app name when creating the host)");
     }
     if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app");
-    if (manifest.version <= this.version) return this.reject(manifest, `stale version ${manifest.version} ≤ ${this.version}`);
+    const vp = this.versionProblem(manifest);
+    if (vp) return this.reject(manifest, vp);
     for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`);
 
     // The whole manifest is verified, but only the slots placed on this host are fetched and run.
@@ -658,6 +694,7 @@ class LiveHost {
     this.order = (manifest.order ?? Object.keys(manifest.layers)).filter((s) => keep.has(s));
     this.app = manifest.app;
     this.version = manifest.version;
+    this.epoch = manifest.epoch ?? 0;
     this.manifest = manifest;
     this.committed(prevManifest, manifest);
     const ms = +(performance.now() - t0).toFixed(1);
@@ -793,6 +830,7 @@ const blobs = new Map();
 let build = 0;
 const builds = new Map(); // manifest version -> friendly build number
 const host = new LiveHost({
+  app: "demo.tasks",
   trustedKeys: trusted,
   capabilities: {
     haptic: async (ms) => { try { navigator.vibrate?.(+ms || 20); } catch {} const s = $("screen"); s.classList.remove("buzz"); void s.offsetWidth; s.classList.add("buzz"); },

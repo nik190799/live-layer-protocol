@@ -45,7 +45,9 @@ export class FleetController {
 
   async publish(channel, layers, { order, percent = 100, seed } = {}) {
     for (const h of Object.values(layers)) if (!this.blobs.has(h)) throw new Error(`blob ${h.slice(0, 8)} was never added`);
-    const manifest = { app: this.app, channel, version: ++this.version, layers, order: order ?? Object.keys(layers) };
+    // epoch = the keyring that signs it: a key rotation starts a new epoch, so one bad version from a
+    // leaked key can be outranked by rotating (RT-02).
+    const manifest = { app: this.app, channel, epoch: this.keyring.keyring, version: ++this.version, layers, order: order ?? Object.keys(layers) };
     if (percent < 100) manifest.rollout = { percent, seed: seed ?? `${this.app}/${channel}` };
     const ch = this.channel(channel);
     ch.history.push({ version: manifest.version, layers, order: manifest.order });
@@ -88,7 +90,9 @@ export class FleetController {
     const doc = { ...this.keyring, keyring: this.keyring.keyring + 1, release: { keys: [releaseKey.publicJwk] } };
     await this.pushKeyring(doc, await this.signKeyring(doc, rootSigners.slice(0, this.keyring.root.threshold ?? 1)));
     this.releaseKey = releaseKey;
-    for (const [name, ch] of this.channels) if (ch.current) await this.sign(name, ch.current.manifest);
+    // Re-sign each channel's release in the new epoch, so hosts that took a (now revoked) key's
+    // release with a higher version still move back to the real one.
+    for (const [name, ch] of this.channels) if (ch.current) await this.sign(name, { ...ch.current.manifest, epoch: doc.keyring });
     return doc.keyring;
   }
 

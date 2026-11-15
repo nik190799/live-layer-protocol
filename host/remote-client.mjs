@@ -16,6 +16,7 @@ export function connectServer(host, url, { app, token, watch, retryMs = 250, que
   let ws, closed = false, onlineWaiters = [];
   const send = (m) => { if (ws?.readyState === 1) { const s = JSON.stringify(m); link.sent.push(s); ws.send(s); return true; } return false; };
   const versionWaiters = new Set();
+  if (app && !host.app) host.app = app; // the client is for this app only (it refuses manifests for others)
 
   function open() {
     ws = new WebSocketImpl(url);

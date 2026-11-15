@@ -24,12 +24,12 @@ const fetchBlob = async () => tasks;
 // no higher version to publish; the host then refuses every later release.
 {
   const key = await generatePublisherKey();
-  const host = new LiveHost({ trustedKeys: [key.publicJwk], limits: { isolation: "inline" } });
+  const host = new LiveHost({ app: "demo.tasks", trustedKeys: [key.publicJwk], limits: { isolation: "inline" } });
   const m1 = { app: "demo.tasks", version: Number.MAX_VALUE, layers: { main: h }, order: ["main"] };
   const a = await host.apply(m1, await signManifest(m1, key.privateKey), fetchBlob);
   const m2 = { app: "demo.tasks", version: Date.now(), layers: { main: h }, order: ["main"] };
   const b = await host.apply(m2, await signManifest(m2, key.privateKey), fetchBlob);
-  report("RT-02 unbounded version freezes updates", a.ok && !b.ok, `huge version accepted: ${a.ok}; normal next release accepted: ${b.ok}`);
+  report("RT-02 unbounded version freezes updates", a.ok || !b.ok, `huge version accepted: ${a.ok}; normal next release accepted: ${b.ok}`);
   host.close();
 }
 
@@ -51,7 +51,7 @@ const fetchBlob = async () => tasks;
 // including the host's own __schema.<slot> markers.
 {
   const stats = read("stats.wasm"), hs = await sha256(stats);
-  const host = new LiveHost({ limits: { isolation: "inline" } });
+  const host = new LiveHost({ allowUnsigned: true, limits: { isolation: "inline" } });
   host.kv.set("tasks.n", 1); host.kv.set("tasks.0.text", "private note"); host.kv.set("tasks.0.done", 1);
   const r = await host.apply({ app: "demo.tasks", version: 1, layers: { main: h, footer: hs }, order: ["main", "footer"] }, "", async (x) => x === hs ? stats : tasks);
   const views = await host.render();

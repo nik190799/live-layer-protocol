@@ -23,7 +23,9 @@ function draw(node, depth = 0) {
   }
 }
 
+const appName = (() => { const i = process.argv.indexOf("--app"); return i > 0 ? process.argv[i + 1] : "demo.tasks"; })();
 const host = new LiveHost({
+  app: appName,
   trustedKeys: [trusted],
   capabilities: {
     haptic: async (ms) => { process.stdout.write("\x07"); }, // terminal bell
@@ -40,7 +42,7 @@ const host = new LiveHost({
 const ws = new WebSocket(url);
 const pending = new Map();
 const send = (m) => ws.send(JSON.stringify(m));
-ws.onopen = () => send({ t: "hello", app: "demo.tasks", version: host.version, have: [...host.blobs.keys()] });
+ws.onopen = () => send({ t: "hello", app: appName, version: host.version, have: [...host.blobs.keys()] });
 ws.onmessage = async (ev) => {
   const msg = JSON.parse(ev.data);
   if (msg.t === "blob") pending.get(msg.hash)?.(b64.dec(msg.data));

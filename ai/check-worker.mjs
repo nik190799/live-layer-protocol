@@ -39,7 +39,7 @@ async function use(host, slots, rounds, { skip = /^$/ } = {}) {
 
 try {
   const log = [];
-  const host = new LiveHost({ onLog: (e) => log.push(e), onRender: () => {} });
+  const host = new LiveHost({ allowUnsigned: true, onLog: (e) => log.push(e), onRender: () => {} });
   const r1 = await host.apply(await manifest(1, base), "", fetchBlob);
   if (!r1.ok) throw new Error(`the current live layers did not start: ${r1.reason}`);
   await use(host, [candidate.slot], 3, { skip: /clear|delete|remove|reset/i });

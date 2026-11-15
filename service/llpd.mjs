@@ -59,6 +59,7 @@ function getApp(name) {
   mkdirSync(appDir(name), { recursive: true });
   const app = { name, clients: new Set(), last: [], saveTimer: null, logTail: [] };
   app.host = new LiveHost({
+    app: name,
     trustedKeys: trusted(),
     capabilities: {
       haptic: async (ms) => { broadcast(app, { t: "fx", name: "haptic", arg: ms }); },
