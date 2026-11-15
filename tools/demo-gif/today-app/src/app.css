@@ -1,0 +1,18 @@
+body { margin: 0; font: 16px Inter, system-ui, sans-serif; color: #18202b; background: #fff; }
+#app { padding: 16px; display: flex; flex-direction: column; gap: 7px; }
+.u-heading { font: 800 24px/1.1 "Inter Display", Inter, sans-serif; margin: 0; }
+.u-label { color: #657085; font-size: 14px; }
+.u-big { font: 800 21px/1 "Inter Display", Inter, sans-serif; }
+.u-row { display: flex; gap: 6px; align-items: center; }
+.u-input { flex: 1; font: 15px Inter, sans-serif; padding: 7px 10px; border-radius: 9px; border: 1px solid #e3e7ee; min-width: 0; }
+.u-button { font: 600 14px/1 Inter, sans-serif; padding: 7px 10px; border-radius: 9px; border: 1px solid #e3e7ee; background: #eef1f6; color: #18202b; }
+.u-button.primary { background: #2c46e8; border-color: #2c46e8; color: #fff; }
+.u-toggle { flex: 1; display: flex; align-items: center; gap: 10px; padding: 5px 2px; border: 0; border-bottom: 1px solid #e3e7ee; background: none; font: 16px Inter, sans-serif; color: #18202b; text-align: left; }
+.u-toggle .box { width: 19px; height: 19px; border-radius: 6px; border: 2px solid #657085; flex: none; }
+.u-toggle[aria-pressed="true"] .box { background: #12855a; border-color: #12855a; }
+.u-toggle[aria-pressed="true"] .t { color: #657085; text-decoration: line-through; }
+.u-progress { height: 10px; border-radius: 99px; background: #eef1f6; overflow: hidden; } .u-progress i { display: block; height: 100%; background: #12855a; }
+#banner { position: fixed; left: 12px; right: 12px; bottom: 12px; background: #b4520a; color: #fff; font: 600 15px Inter, sans-serif; padding: 10px; border-radius: 10px; text-align: center; }
+#crash { position: fixed; inset: 0; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 20px; }
+#crash b { font: 800 24px Inter, sans-serif; color: #c0283c; } #crash span { color: #657085; }
+[hidden] { display: none !important; }
