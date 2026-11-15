@@ -47,7 +47,7 @@ writeFileSync(current, source);
 const staticBytes = Object.fromEntries(Object.entries(statics).map(([s, f]) => [s, new Uint8Array(readFileSync(f))]));
 
 const { privateKey } = await loadKey("keys");
-const server = new StreamServer({ port, privateKey });
+const server = new StreamServer({ port, privateKey, host: opt("host", "127.0.0.1") }); // local only unless --host is given (AI-01)
 await server.ready;
 await server.publish({ [slot]: liveBytes, ...staticBytes }, order);
 console.log(`streaming on ws://localhost:${port}; hosts trust keys/publisher.pub.json`);

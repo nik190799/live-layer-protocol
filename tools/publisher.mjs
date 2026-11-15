@@ -45,9 +45,12 @@ async function build() {
   return true;
 }
 
-const wss = new WebSocketServer({ port });
+// Local only by default (AI-01); pass --host 0.0.0.0 to let hosts on other machines connect.
+const listenHost = (() => { const i = process.argv.indexOf("--host"); return i > 0 ? process.argv[i + 1] : "127.0.0.1"; })();
+const wss = new WebSocketServer({ port, host: listenHost, maxPayload: 1024 * 1024 });
 const send = (ws, msg) => ws.readyState === 1 && ws.send(JSON.stringify(msg));
 wss.on("connection", (ws) => {
+  ws.on("error", () => {});
   ws.on("message", (raw) => {
     const msg = JSON.parse(raw);
     if (msg.t === "hello" && current) send(ws, { t: "manifest", ...current });

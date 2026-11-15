@@ -98,6 +98,7 @@ export const DEFAULT_LIMITS = {
   memoryMb: 32,    // cap on the layer's linear memory, written into the module's memory limits
   uiNodes: 10000,  // cap on UI nodes one call may emit (bounds the worker's JS heap in every engine)
   heapMb: 64,      // worker JS heap cap (Node only; browsers have no per-worker heap limit)
+  blobMb: 16,      // largest layer download accepted (SEC-06)
   isolation: "worker", // "inline" runs layers on the host's thread with no time limit: only for trusted
                         // code, e.g. simulating many devices in one process (bench/sim-hosts.mjs)
 };
@@ -482,6 +483,7 @@ export class LiveHost {
     const wanted = [...new Set(mine.map(([, h]) => h))].filter((h) => !this.blobs.has(h));
     for (const h of wanted) {
       const bytes = await fetchBlob(h);
+      if (!bytes || bytes.byteLength > this.limits.blobMb * 2 ** 20) return this.reject(manifest, `blob ${h.slice(0, 8)} is ${bytes ? Math.ceil(bytes.byteLength / 2 ** 20) + " MB, over the " + this.limits.blobMb + " MB limit" : "missing"}`);
       if ((await sha256(bytes)) !== h) return this.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`);
       this.blobs.set(h, bytes);
     }
@@ -588,10 +590,19 @@ export class LiveHost {
     if (!s) return false;
     s.box.kill();
     let prev = s.prev;
+    // Never run older code on data a newer schema already migrated (ST-01): a previous version
+    // whose llp_schema differs from the stored schema is skipped.
+    const stored = this.kv.get(`__schema.${slot}`);
     while (prev.length) {
       const [back, ...rest] = prev;
       try {
         const box = await this.load(slot, back);
+        if (stored !== undefined && box.schema !== stored) {
+          box.kill();
+          this.log("error", `${slot}: not reverting to ${back.slice(0, 8)}: it expects schema ${box.schema}, but the data is on schema ${stored}`, { slot });
+          prev = rest;
+          continue;
+        }
         this.slots.set(slot, { hash: back, box, prev: rest });
         this.log("rollback", `${slot} failed (${err.message}) — reverted to ${back.slice(0, 8)}`, { slot });
         return true;

@@ -18,7 +18,8 @@ import { DiskStore } from "./server-store.mjs";
 export const SERVER_LIMITS = { callMs: 1000, loadMs: 5000, memoryMb: 128, heapMb: 512 };
 const MAX_HOPS = 8;          // capability round trips one remote call may take
 const MAX_ARGS = 64 * 1024;  // bytes of args per call
-const IDEM_KEEP = 10000;     // remembered call ids per tenant, for exactly-once retries
+const IDEM_KEEP = 10000;
+const MAX_CLIENT_MESSAGE = 1024 * 1024; // bytes per WebSocket message from a client     // remembered call ids per tenant, for exactly-once retries
 
 export class RemoteError extends Error {
   constructor(code, message, extra = {}) { super(message); this.code = code; Object.assign(this, extra); }
@@ -48,9 +49,14 @@ export function tokenAuth(secret) {
 
 // ---------- one tenant's Live Host, with the overlap window ----------
 export class ServerLiveHost extends LiveHost {
-  constructor({ windowMs = 30000, idleMs = 120000, ...opts } = {}) {
+  // revertAfterUsers / revertWindowMs (CO-01): one user's failing call restarts the worker on the
+  // same version; the slot is reverted for everyone only when that many different users' calls
+  // fail on the current version within the window.
+  constructor({ windowMs = 30000, idleMs = 120000, revertAfterUsers = 3, revertWindowMs = 60000, ...opts } = {}) {
     super({ ...opts, role: "server", limits: { ...SERVER_LIMITS, ...opts.limits } });
     this.windowMs = windowMs;
+    this.revertAfterUsers = revertAfterUsers; this.revertWindowMs = revertWindowMs;
+    this.failures = new Map(); // `${slot}@${hash}` -> { since, users: Set }
     // A worker costs ~10 MB, so idle tenants' workers are stopped and restarted on their next call.
     this.idleMs = idleMs;
     if (idleMs > 0) { this.sweeper = setInterval(() => this.evictIdle(), Math.max(50, idleMs / 4)); this.sweeper.unref?.(); }
@@ -89,6 +95,23 @@ export class ServerLiveHost extends LiveHost {
   }
   close() { clearInterval(this.sweeper); super.close(); }
 
+  async failed(slot, user, err) {
+    const s = this.slots.get(slot);
+    if (!s) return;
+    const key = `${slot}@${s.hash}`, now = Date.now();
+    let f = this.failures.get(key);
+    if (!f || now - f.since > this.revertWindowMs) this.failures.set(key, f = { since: now, users: new Set() });
+    f.users.add(user);
+    if (f.users.size >= this.revertAfterUsers) {
+      this.failures.delete(key);
+      this.log("error", `${slot}: calls by ${f.users.size} different users failed on ${s.hash.slice(0, 8)} within ${this.revertWindowMs} ms; reverting`, { slot });
+      return this.revert(slot, err);
+    }
+    s.box.kill();
+    try { s.box = await this.load(slot, s.hash); } catch { return this.revert(slot, err); }
+    this.log("error", `${slot}: a call by ${user} failed (${err.message}); worker restarted on the same version (${f.users.size} of ${this.revertAfterUsers} users before a revert)`, { slot });
+  }
+
   // Which worker answers a call made by a client running `version`.
   resolve(slot, version) {
     if (version === this.version) {
@@ -123,7 +146,7 @@ export class ServerLiveHost extends LiveHost {
         const current = this.slots.get(slot)?.box === box;
         let res;
         try { res = await this.call(slot, box, "llp_event", this.kv, ev, [], { apply: false }); }
-        catch (e) { if (current) await this.revert(slot, e); else box.kill(); throw new RemoteError("layer_failed", e.message); }
+        catch (e) { if (current) await this.failed(slot, user, e); else box.kill(); throw new RemoteError("layer_failed", e.message); }
         let reply, error;
         for (const [k, v] of res.writes) {
           if (k === "__reply") reply = String(v);
@@ -152,9 +175,9 @@ export class ServerHost {
   // restart loses nothing (ST-02). Without it, state lives in memory only and a warning is logged.
   // fsync (default true): flush each commit to the disk before replying; false survives a process
   // crash but not a power loss.
-  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, idleMs = 120000, limits = {}, maxPending = 256, onLog = () => {}, dataDir = null, fsync = true, compactEvery = 1000 } = {}) {
+  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, idleMs = 120000, limits = {}, maxPending = 256, onLog = () => {}, dataDir = null, fsync = true, compactEvery = 1000, revertAfterUsers = 3, revertWindowMs = 60000 } = {}) {
     if (!authenticate) throw new Error("server host needs an authenticate(token, app) function");
-    Object.assign(this, { trustedKeys, capabilities, authenticate, windowMs, idleMs, limits, maxPending, onLog });
+    Object.assign(this, { trustedKeys, capabilities, authenticate, windowMs, idleMs, limits, maxPending, onLog, revertAfterUsers, revertWindowMs });
     this.tenants = new Map();
     this.upstreams = [];
     this.disk = dataDir ? new DiskStore(dataDir, { fsync, compactEvery, idemKeep: IDEM_KEEP }) : null;
@@ -193,7 +216,7 @@ export class ServerHost {
     if (t) return t;
     const host = new ServerLiveHost({
       app,
-      trustedKeys: this.trustedKeys, windowMs: this.windowMs, idleMs: this.idleMs, limits: this.limits,
+      trustedKeys: this.trustedKeys, windowMs: this.windowMs, idleMs: this.idleMs, limits: this.limits, revertAfterUsers: this.revertAfterUsers, revertWindowMs: this.revertWindowMs,
       // Providers get the tenant name so secrets can be scoped per app; layers only see results.
       capabilities: Object.fromEntries(Object.entries(this.capabilities).map(([n, f]) => [n, (arg, ctx) => f(arg, { ...ctx, app })])),
       onLog: (e) => this.onLog({ app, ...e }),
@@ -221,6 +244,7 @@ export class ServerHost {
       for (const h of new Set(Object.values(manifest.layers))) {
         if (host.blobs.has(h)) continue;
         const bytes = await fetchBlob(h);
+        if (!bytes || bytes.byteLength > host.limits.blobMb * 2 ** 20) return host.reject(manifest, `blob ${h.slice(0, 8)} is missing or over the ${host.limits.blobMb} MB limit`);
         if ((await sha256(bytes)) !== h) return host.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`);
         host.blobs.set(h, bytes);
         this.disk?.putBlob(h, bytes);
@@ -265,11 +289,12 @@ export class ServerHost {
   // Accept client hosts.
   async listen(port = 0) {
     await this.ready; // clients never see a tenant before its saved state is back
-    this.wss = new WebSocketServer({ port });
+    this.wss = new WebSocketServer({ port, maxPayload: MAX_CLIENT_MESSAGE }); // SEC-06: a call's args are capped at 64 KB anyway
     this.wss.on("connection", (ws) => {
       // Messages after a hello wait for it (auth may be async), so a reconnecting client can send
       // hello and its queued calls back to back. Calls don't wait for each other.
       const c = { ws, user: null, app: null, version: 0, ready: Promise.resolve() };
+      ws.on("error", () => {}); // e.g. a message over maxPayload: ws closes the socket (1009); don't crash the host
       ws.on("message", (raw) => {
         let m;
         try { m = JSON.parse(raw); } catch { return send(ws, { t: "error", code: "bad_request", message: "not JSON" }); }
