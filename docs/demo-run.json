@@ -1,28 +1,28 @@
 {
-  "recordedAt": "2026-11-15T07:07:32.494Z",
+  "recordedAt": "2026-11-15T07:25:11.243Z",
   "swaps": [
     {
       "build": 2,
-      "ms": 5.3,
+      "ms": 5.5,
       "tasks": 3
     },
     {
       "build": 3,
-      "ms": 4.2,
+      "ms": 4.1,
       "tasks": 3
     }
   ],
   "scene1": {
     "attempts": 1,
-    "hostSwapMs": 5.3,
-    "compileMs": 373,
-    "checkMs": 108
+    "hostSwapMs": 5.5,
+    "compileMs": 393,
+    "checkMs": 138
   },
   "scene2": {
     "caught": "trapped while its buttons were clicked: main failed (llp_event: layer aborted) — reverted to 09077dc4",
     "appBuildWhileCaught": 2,
     "fixAttempts": 2,
-    "hostSwapMs": 4.2
+    "hostSwapMs": 4.1
   },
   "final": {
     "n": 2,
@@ -32,40 +32,40 @@
   "timeline": [
     {
       "name": "intro",
-      "at": 0.086
+      "at": 0.067
     },
     {
       "name": "ask-1",
-      "at": 5.674
+      "at": 4.323
     },
     {
       "name": "live-1",
-      "at": 9.245
+      "at": 7.836
     },
     {
       "name": "ask-2",
-      "at": 14.276
+      "at": 12.507
     },
     {
       "name": "caught",
-      "at": 16.714
+      "at": 14.712
     },
     {
       "name": "retry",
-      "at": 20.767
+      "at": 18.925
     },
     {
       "name": "live-2",
-      "at": 23.844
+      "at": 21.725
     },
     {
       "name": "end",
-      "at": 28.675
+      "at": 26.213
     },
     {
       "name": "done",
-      "at": 33.178
+      "at": 30.216
     }
   ],
-  "publisherOutput": "model backend: handoff (replies read from /tmp/llp-gif-pqkbsl/handoff)\nstreaming on ws://localhost:7872; hosts trust keys/publisher.pub.json\n\nai> \n· attempt 1/4: asking handoff (replies read from /tmp/llp-gif-pqkbsl/handoff)…\n  waiting for the model: request in /tmp/llp-gif-pqkbsl/handoff/001.request.md, reply goes in /tmp/llp-gif-pqkbsl/handoff/001.reply.md\n  ✓ compiled (11588 bytes)\n  ✓ shadow check passed (state built by using the live app: 10 keys; every button clicked)\n\n--- measured by the shadow check ---\ncapabilities requested: haptic\n\nthe model says: Adds a progress bar and a \"N left\" count under the heading, and keeps every existing task as it is (no schema change).\n\n--- diff ---\n- // \"Tasks\" main layer — written in AssemblyScript (TypeScript-like).\n- import { col, row, card, heading, label, big, button, input, toggle, end, text,\n-          getNum, setNum, getStr, setStr, eventId, eventValue, cap, fmt } from \"./llp\";\n+ // \"Tasks\" main layer: a progress bar and how many tasks are left.\n+ import { col, row, heading, label, big, button, input, toggle, el, attr, end,\n+          getNum, setNum, getStr, setStr, eventId, cap } from \"./llp\";\n  \n  export function llp_schema(): i32 { return 1; }\n  export function llp_migrate(from: i32): void {}\n  \n+ function progress(pct: i32): void { el(\"progress\"); attr(\"value\", pct.toString()); end(); }\n+ \n  export function llp_view(): void {\n    const n = <i32>getNum(\"tasks.n\");\n  ...\n    col();\n      heading(\"Tasks\");\n+     big((n - done).toString() + \" left\");\n+     progress(n == 0 ? 0 : <i32>(done * 100 / n));\n      label(done.toString() + \" of \" + n.toString() + \" done\");\n      row();\n  ...\n        const k = \"tasks.\" + i.toString();\n        if (getNum(k + \".done\") == 0) {\n-         const t = getStr(k + \".text\");\n-         setStr(\"tasks.\" + w.toString() + \".text\", t);\n+         setStr(\"tasks.\" + w.toString() + \".text\", getStr(k + \".text\"));\n          setNum(\"tasks.\" + w.toString() + \".done\", 0);\n          w++;\n  ...\n\n--- preview (sample data) ---\n== Tasks ==\n2 left\n███░░░░░░░ 33%\n1 of 3 done\n  <Add a task…>\n  [ Add ]\n[ ] sample 1\n[x] sample 2\n[ ] sample 3\n[ Clear done ]\n  Progress (C layer)\n  33%\n███░░░░░░░ 33%\n  [ Where am I? ]\n  [ Buzz ]\n\napprove? [y] ship  [n] discard  [r <change>] revise: LIVE v1794726411414 after 1 attempt(s): host swapped in 5.3 ms\n  time: total 1602 ms = model 101 + compile 373 + check 108 + your approval 1007 + stream 11\n\nai> \n· attempt 1/4: asking handoff (replies read from /tmp/llp-gif-pqkbsl/handoff)…\n  waiting for the model: request in /tmp/llp-gif-pqkbsl/handoff/002.request.md, reply goes in /tmp/llp-gif-pqkbsl/handoff/002.reply.md\n  ✓ compiled (13602 bytes)\n  ✗ check: trapped while its buttons were clicked: main failed (llp_event: layer aborted) — reverted to 09077dc4\n\n· attempt 2/4: asking handoff (replies read from /tmp/llp-gif-pqkbsl/handoff)…\n  waiting for the model: request in /tmp/llp-gif-pqkbsl/handoff/003.request.md, reply goes in /tmp/llp-gif-pqkbsl/handoff/003.reply.md\n  ✓ compiled (13602 bytes)\n  ✓ shadow check passed (state built by using the live app: 10 keys; every button clicked)\n\n--- measured by the shadow check ---\ncapabilities requested: haptic\n\nthe model says: Fixes the off-by-one: the copy loop read one task past the end (i <= n), which trapped. It now stops at i < n.\n\n--- diff ---\n- // \"Tasks\" main layer: a progress bar and how many tasks are left.\n+ // \"Tasks\" main layer: progress bar, tasks left, and Delete on each task.\n  import { col, row, heading, label, big, button, input, toggle, el, attr, end,\n           getNum, setNum, getStr, setStr, eventId, cap } from \"./llp\";\n  ...\n      for (let i = 0; i < n; i++) {\n        const k = \"tasks.\" + i.toString();\n-       toggle(\"t:\" + i.toString(), getNum(k + \".done\") > 0, getStr(k + \".text\"));\n+       row();\n+         toggle(\"t:\" + i.toString(), getNum(k + \".done\") > 0, getStr(k + \".text\"));\n+         button(\"del:\" + i.toString(), \"Delete\");\n+       end();\n      }\n      if (done > 0) button(\"clear\", \"Clear done\");\n  ...\n      setNum(k + \".done\", now);\n      if (now > 0) cap(\"haptic\", \"20\");\n+   } else if (id.startsWith(\"del:\")) {\n+     const gone = I32.parseInt(id.substr(4));\n+     const n = <i32>getNum(\"tasks.n\");\n+     const texts = new StaticArray<string>(n);\n+     const dones = new StaticArray<f64>(n);\n+     for (let i = 0; i < n; i++) {\n+       texts[i] = getStr(\"tasks.\" + i.toString() + \".text\");\n+       dones[i] = getNum(\"tasks.\" + i.toString() + \".done\");\n+     }\n+     let w = 0;\n+     for (let i = 0; i < n; i++) {\n+       if (i == gone) continue;\n+       setStr(\"tasks.\" + w.toString() + \".text\", texts[i]);\n+       setNum(\"tasks.\" + w.toString() + \".done\", dones[i]);\n+       w++;\n+     }\n+     setNum(\"tasks.n\", w);\n    } else if (id == \"clear\") {\n      const n = <i32>getNum(\"tasks.n\");\n  ...\n\n--- preview (sample data) ---\n== Tasks ==\n2 left\n███░░░░░░░ 33%\n1 of 3 done\n  <Add a task…>\n  [ Add ]\n  [ ] sample 1\n  [ Delete ]\n  [x] sample 2\n  [ Delete ]\n  [ ] sample 3\n  [ Delete ]\n[ Clear done ]\n  Progress (C layer)\n  33%\n███░░░░░░░ 33%\n  [ Where am I? ]\n  [ Buzz ]\n\napprove? [y] ship  [n] discard  [r <change>] revise: LIVE v1794726411415 after 2 attempt(s): host swapped in 4.2 ms\n  time: total 8073 ms = model 4721 + compile 736 + check 212 + your approval 2395 + stream 7\n\nai> "
+  "publisherOutput": "model backend: handoff (replies read from /tmp/llp-gif-3blHNv/handoff)\nstreaming on ws://localhost:7802; hosts trust keys/publisher.pub.json\n\nai> \n· attempt 1/4: asking handoff (replies read from /tmp/llp-gif-3blHNv/handoff)…\n  waiting for the model: request in /tmp/llp-gif-3blHNv/handoff/001.request.md, reply goes in /tmp/llp-gif-3blHNv/handoff/001.reply.md\n  ✓ compiled (11588 bytes)\n  ✓ shadow check passed (state built by using the live app: 10 keys; every button clicked)\n\n--- measured by the shadow check ---\ncapabilities requested: haptic\n\nthe model says: Adds a progress bar and a \"N left\" count under the heading, and keeps every existing task as it is (no schema change).\n\n--- diff ---\n- // \"Tasks\" main layer — written in AssemblyScript (TypeScript-like).\n- import { col, row, card, heading, label, big, button, input, toggle, end, text,\n-          getNum, setNum, getStr, setStr, eventId, eventValue, cap, fmt } from \"./llp\";\n+ // \"Tasks\" main layer: a progress bar and how many tasks are left.\n+ import { col, row, heading, label, big, button, input, toggle, el, attr, end,\n+          getNum, setNum, getStr, setStr, eventId, cap } from \"./llp\";\n  \n  export function llp_schema(): i32 { return 1; }\n  export function llp_migrate(from: i32): void {}\n  \n+ function progress(pct: i32): void { el(\"progress\"); attr(\"value\", pct.toString()); end(); }\n+ \n  export function llp_view(): void {\n    const n = <i32>getNum(\"tasks.n\");\n  ...\n    col();\n      heading(\"Tasks\");\n+     big((n - done).toString() + \" left\");\n+     progress(n == 0 ? 0 : <i32>(done * 100 / n));\n      label(done.toString() + \" of \" + n.toString() + \" done\");\n      row();\n  ...\n        const k = \"tasks.\" + i.toString();\n        if (getNum(k + \".done\") == 0) {\n-         const t = getStr(k + \".text\");\n-         setStr(\"tasks.\" + w.toString() + \".text\", t);\n+         setStr(\"tasks.\" + w.toString() + \".text\", getStr(k + \".text\"));\n          setNum(\"tasks.\" + w.toString() + \".done\", 0);\n          w++;\n  ...\n\n--- preview (sample data) ---\n== Tasks ==\n2 left\n███░░░░░░░ 33%\n1 of 3 done\n  <Add a task…>\n  [ Add ]\n[ ] sample 1\n[x] sample 2\n[ ] sample 3\n[ Clear done ]\n  Progress (C layer)\n  33%\n███░░░░░░░ 33%\n  [ Where am I? ]\n  [ Buzz ]\n\napprove? [y] ship  [n] discard  [r <change>] revise: LIVE v1794727473781 after 1 attempt(s): host swapped in 5.5 ms\n  time: total 2454 ms = model 100 + compile 393 + check 138 + your approval 1810 + stream 9\n\nai> \n· attempt 1/4: asking handoff (replies read from /tmp/llp-gif-3blHNv/handoff)…\n  waiting for the model: request in /tmp/llp-gif-3blHNv/handoff/002.request.md, reply goes in /tmp/llp-gif-3blHNv/handoff/002.reply.md\n  ✓ compiled (13602 bytes)\n  ✗ check: trapped while its buttons were clicked: main failed (llp_event: layer aborted) — reverted to 09077dc4\n\n· attempt 2/4: asking handoff (replies read from /tmp/llp-gif-3blHNv/handoff)…\n  waiting for the model: request in /tmp/llp-gif-3blHNv/handoff/003.request.md, reply goes in /tmp/llp-gif-3blHNv/handoff/003.reply.md\n  ✓ compiled (13602 bytes)\n  ✓ shadow check passed (state built by using the live app: 10 keys; every button clicked)\n\n--- measured by the shadow check ---\ncapabilities requested: haptic\n\nthe model says: Fixes the off-by-one: the copy loop read one task past the end (i <= n), which trapped. It now stops at i < n.\n\n--- diff ---\n- // \"Tasks\" main layer: a progress bar and how many tasks are left.\n+ // \"Tasks\" main layer: progress bar, tasks left, and Delete on each task.\n  import { col, row, heading, label, big, button, input, toggle, el, attr, end,\n           getNum, setNum, getStr, setStr, eventId, cap } from \"./llp\";\n  ...\n      for (let i = 0; i < n; i++) {\n        const k = \"tasks.\" + i.toString();\n-       toggle(\"t:\" + i.toString(), getNum(k + \".done\") > 0, getStr(k + \".text\"));\n+       row();\n+         toggle(\"t:\" + i.toString(), getNum(k + \".done\") > 0, getStr(k + \".text\"));\n+         button(\"del:\" + i.toString(), \"Delete\");\n+       end();\n      }\n      if (done > 0) button(\"clear\", \"Clear done\");\n  ...\n      setNum(k + \".done\", now);\n      if (now > 0) cap(\"haptic\", \"20\");\n+   } else if (id.startsWith(\"del:\")) {\n+     const gone = I32.parseInt(id.substr(4));\n+     const n = <i32>getNum(\"tasks.n\");\n+     const texts = new StaticArray<string>(n);\n+     const dones = new StaticArray<f64>(n);\n+     for (let i = 0; i < n; i++) {\n+       texts[i] = getStr(\"tasks.\" + i.toString() + \".text\");\n+       dones[i] = getNum(\"tasks.\" + i.toString() + \".done\");\n+     }\n+     let w = 0;\n+     for (let i = 0; i < n; i++) {\n+       if (i == gone) continue;\n+       setStr(\"tasks.\" + w.toString() + \".text\", texts[i]);\n+       setNum(\"tasks.\" + w.toString() + \".done\", dones[i]);\n+       w++;\n+     }\n+     setNum(\"tasks.n\", w);\n    } else if (id == \"clear\") {\n      const n = <i32>getNum(\"tasks.n\");\n  ...\n\n--- preview (sample data) ---\n== Tasks ==\n2 left\n███░░░░░░░ 33%\n1 of 3 done\n  <Add a task…>\n  [ Add ]\n  [ ] sample 1\n  [ Delete ]\n  [x] sample 2\n  [ Delete ]\n  [ ] sample 3\n  [ Delete ]\n[ Clear done ]\n  Progress (C layer)\n  33%\n███░░░░░░░ 33%\n  [ Where am I? ]\n  [ Buzz ]\n\napprove? [y] ship  [n] discard  [r <change>] revise: LIVE v1794727473782 after 2 attempt(s): host swapped in 4.1 ms\n  time: total 8115 ms = model 4936 + compile 1112 + check 276 + your approval 1777 + stream 13\n\nai> "
 }

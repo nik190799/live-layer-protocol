@@ -72,98 +72,89 @@ await page.goto(`http://127.0.0.1:${server.address().port}/?port=${port}`);
 await page.waitForFunction(() => window.stage?.swaps.length === 1, null, { timeout: 30000 });
 
 const S = (fn, ...a) => page.evaluate(([f, a]) => window.stage[f](...a), [fn, a]);
-const cap = (step, title, sub) => S("caption", step, title, sub);
-const line = (t, cls) => page.evaluate(([t, c]) => { window.stage.line(t, c); }, [t, cls]);
-async function typeLine(prefix, text, cls = "you") { // type into the terminal pane, then send to the publisher
-  await page.evaluate(([p, c]) => { window.__l = window.stage.line(p, c); window.stage.cursor(window.__l, true); }, [prefix, cls]);
-  for (let i = 1; i <= text.length; i++) { await page.evaluate(([s]) => window.stage.edit(window.__l, s), [prefix + text.slice(0, i)]); await sleep(32); }
-  await sleep(250);
-  await page.evaluate(() => window.stage.cursor(window.__l, false));
+async function ask(text) { // type the request into the bubble, then send it to the publisher
+  await S("ask", ""); await S("typing", true);
+  for (let i = 1; i <= text.length; i++) { await S("ask", text.slice(0, i)); await sleep(38); }
+  await sleep(300); await S("typing", false);
   say(text);
 }
-// Copy what the publisher printed into the terminal pane: progress lines only (the diff and the
-// sample preview are long; the full output is saved in <out>-run.json).
-let shown = 0;
-function pump() {
-  const lines = output.split("\n"), done = output.endsWith("\n") ? lines.length - 1 : lines.length - 1;
-  const outLines = [];
-  for (; shown < done; shown++) {
-    const l = lines[shown];
-    if (/^· attempt/.test(l)) outLines.push([l.replace(/asking handoff.*$/, "asking the model…"), "dim"]);
-    else if (/^\s+✓/.test(l)) outLines.push([l.trim().replace(/ \(state built.*$/, ": every button clicked"), "ok"]);
-    else if (/^\s+✗/.test(l)) outLines.push([l.trim(), "bad"]);
-    else if (/^the model says:/.test(l)) outLines.push([l.slice(0, 90) + (l.length > 90 ? "…" : ""), "dim"]);
-    else if (/^LIVE /.test(l)) outLines.push([l, "live"]);
-    else if (/^\s+time:/.test(l)) { const m = /compile (\d+) \+ check (\d+) .*stream (\d+)/.exec(l); if (m) outLines.push([`  compile ${m[1]} ms · check ${m[2]} ms · stream ${m[3]} ms`, "dim"]); }
-  }
-  return outLines;
-}
-async function flush() { for (const [t, c] of pump()) { await line(t, c); await sleep(120); } }
-const pumpTimer = setInterval(() => {}, 1000);
+async function approve() { await S("step", 3, "active"); await sleep(900); say("y"); await S("step", 3, "ok", "approved"); }
 
 // ---- scene 0: the app is running and in use ----
 mark("intro");
-await cap("Live Layer Protocol", "A running app. No CI/CD, no restart.", "Real run: AI publisher on the left, a Live Host in Chromium on the right.");
-await line("$ node tools/ai-publish.mjs --backend handoff", "dim");
-await line(`streaming on ws://localhost:${port}`, "dim");
-await sleep(1500);
+await S("title", "This app is running.<br>Let's change it live.");
+await S("steps", "");
+await sleep(800);
 for (const t of ["Buy milk", "Call mom", "Ship the demo"]) {
   await page.click("#in-draft"); await page.keyboard.type(t, { delay: 45 }); await page.keyboard.press("Enter"); await sleep(250);
 }
 await page.click('[data-id="t:0"]');
-await sleep(1800);
+await sleep(1200);
 
 // ---- scene 1: a good change ----
 mark("ask-1");
-await cap("1 · Ask the AI", "“Add a progress bar and how many are left”", "The app keeps running while the AI writes the change.");
-await typeLine("ai> ", "add a progress bar and how many tasks are left");
+await S("title", "Ask the AI<br>for a change");
+await ask("Add a progress bar");
+await S("step", 1, "active");
 await answerModel(1, "1-progress.md");
-await until(/approve\?/); await flush();
-await line("approve? y", "you"); await sleep(500); say("y");
+await until(/✓ compiled/); await S("step", 1, "ok", "compiled"); await S("step", 2, "active"); await sleep(500);
+await until(/✓ shadow check passed/); await S("step", 2, "ok", "passed: every button clicked"); await sleep(500);
+await until(/approve\?/); await approve();
 const live1 = await until(/LIVE v\d+ after (\d+) attempt\(s\): host swapped in ([\d.]+) ms\n\s+time: total \d+ ms = model \d+ \+ compile (\d+) \+ check (\d+)/);
-await flush();
 const swap1 = await page.evaluate(() => window.stage.swaps.at(-1));
 mark("live-1");
-await cap("1 · Live", `<em>Live in ${fmt(swap1.ms)} ms.</em> Same process, all ${swap1.tasks} tasks kept.`, `Compiled in ${live1[3]} ms, shadow-checked in ${live1[4]} ms, signed, streamed, hot-swapped.`);
-await sleep(2600);
-await page.click('[data-id="t:1"]'); await sleep(2400);
+await S("step", 1, "ok", `compiled in ${live1[3]} ms`); await S("step", 2, "ok", `passed in ${live1[4]} ms`);
+await S("step", 4, "ok", `swapped in ${fmt(swap1.ms)} ms`);
+await S("phone", "live"); await S("badge", `${fmt(swap1.ms)} ms`, `no restart · all ${swap1.tasks} tasks kept`);
+await S("title", `<em>Live in ${fmt(swap1.ms)} ms.</em><br>No restart.`);
+await sleep(3000);
+await S("badge", null); await S("phone", "");
+await page.click('[data-id="t:1"]'); await sleep(1600);
 
 // ---- scene 2: a bad change is caught ----
 mark("ask-2");
-await cap("2 · A buggy change", "“Add a Delete button on each task”", "This time the AI's code has an off-by-one bug.");
-await typeLine("ai> ", "add a delete button on each task");
+await S("steps", ""); await S("ask", null);
+await S("title", "Now the AI<br>writes a bug");
+await ask("Add a Delete button");
+await S("step", 1, "active");
 await answerModel(2, "2-delete-bad.md");
+await until(/✓ compiled/); await S("step", 1, "ok", "compiled"); await S("step", 2, "active"); await sleep(600);
 const caught = await until(/✗ check: (.*)/);
-await flush();
-await S("held");
 const stateHeld = await page.evaluate(() => window.stage.state());
 mark("caught");
-await cap("2 · Caught", "<s>Crash caught before it shipped.</s> The app never saw it.", "The shadow check clicked every button on a copy of the live state; Delete trapped.");
-await sleep(4000);
-await answerModel(3, "3-delete-fixed.md", /trapped/);
+await S("step", 2, "bad", "crashed when Delete was clicked");
+await S("step", 3, "off"); await S("step", 4, "off", "never reached the app");
+await S("phone", "held"); await S("badge", "Untouched", "the running app never saw the bug", "warn");
+await S("title", "<s>Bug caught.</s><br>App untouched.");
+await sleep(4200);
+
+// ---- scene 3: the error goes back to the AI, the fix goes live ----
 mark("retry");
-await cap("2 · Fixed", "The error went back to the AI. It fixed it.", "Same checks again, then you approve.");
-await until(/approve\?/); await flush(); await sleep(1500);
-await line("approve? y", "you"); await sleep(500); say("y");
+await S("badge", null); await S("phone", "");
+await S("steps", ""); await S("step", 1, "active", "the crash goes back to the AI");
+await S("title", "The AI fixes<br>its own bug");
+await answerModel(3, "3-delete-fixed.md", /trapped/);
+await until(/✓ compiled/); await S("step", 1, "ok", "fixed and compiled"); await S("step", 2, "active"); await sleep(500);
+await until(/✓ shadow check passed/); await S("step", 2, "ok", "passed: every button clicked"); await sleep(500);
+await until(/approve\?/); await approve();
 const live2 = await until(/LIVE v\d+ after (\d+) attempt\(s\): host swapped in ([\d.]+) ms/);
-await flush();
 const swap2 = await page.evaluate(() => window.stage.swaps.at(-1));
 mark("live-2");
-await cap("2 · Live", `<em>Fix live in ${fmt(swap2.ms)} ms.</em> Still the same running app.`, `${swap2.tasks} tasks kept. Only checked code ever reaches it.`);
+await S("step", 4, "ok", `swapped in ${fmt(swap2.ms)} ms`);
+await S("phone", "live"); await S("badge", `${fmt(swap2.ms)} ms`, `fix live · ${swap2.tasks} tasks kept`);
+await S("title", `<em>Fixed and live<br>in ${fmt(swap2.ms)} ms.</em>`);
 await sleep(2400);
-await page.click('[data-id="del:2"]'); await sleep(2400);
+await S("badge", null);
+await page.click('[data-id="del:2"]'); await sleep(2000);
 const finalState = await page.evaluate(() => window.stage.state());
 
 // ---- end card ----
 mark("end");
-await S("end", `<h1>Change a running app<br><em>in milliseconds.</em></h1><ul>
-<li>AI change live in <b>${fmt(swap1.ms)} ms</b>, data kept, no restart</li>
-<li>Buggy change <b>caught</b> before it shipped</li>
-<li>Every layer signed, sandboxed, and rolled back on failure</li></ul>
-<div class="repo">Live Layer Protocol · github.com/nik190799/live-layer-protocol</div>`);
-await sleep(4500);
+await S("end", `<h2>AI changes a running app<br><em>in milliseconds.</em></h2>
+<p>No CI/CD. No restart. Bad code never reaches it.</p>
+<div class="repo">Live Layer Protocol</div>`);
+await sleep(4000);
 mark("done");
-clearInterval(pumpTimer);
 const video = await page.video().path();
 await ctx.close(); await browser.close(); server.close(); say("quit");
 function fmt(ms) { return ms < 10 ? ms.toFixed(1) : String(Math.round(ms)); }

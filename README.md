@@ -2,7 +2,7 @@
 
 Stream code into a running app. Layers are signed, content-addressed WebAssembly modules; the host verifies, rehearses, and swaps them in place in milliseconds without losing state. See `SPEC.md`.
 
-![An AI change goes live in a running app in about 5 ms with its data kept, then a buggy change is caught by the shadow check and the fix goes live](docs/demo.gif)
+![An AI change goes live in a running app in milliseconds with its data kept, then a buggy change is caught by the shadow check and the fix goes live](docs/demo.gif)
 
 A real run, recorded by `node tools/demo-gif/record.mjs` (also as [docs/demo.mp4](docs/demo.mp4); the numbers it measured are in `docs/demo-run.json`).
 

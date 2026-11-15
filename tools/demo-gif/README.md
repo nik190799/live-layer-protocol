@@ -6,9 +6,9 @@ writes the numbers it measured to `docs/demo-run.json`. It needs Playwright with
 
 What is real:
 
-- The left pane shows lines printed by the real `tools/ai-publish.mjs` (compile, shadow check,
-  approval, signed stream). The diff and sample preview it also prints are left out of the pane;
-  the full output is in `demo-run.json`.
+- The four steps on the left (AI writes the code, safety check, approval, live) move when the real
+  `tools/ai-publish.mjs` prints that step, and the times under them are the ones it printed. Its full
+  output, including the diff and preview it shows the approver, is saved in `demo-run.json`.
 - The phone is a real Live Host (`host/llp-core.js`, layers in Web Workers) in Chromium, connected to
   the publisher over WebSocket, verifying its signature. The tasks are typed and clicked into it.
 - Every number in a caption comes from that run: the swap time is what the host measured, the
@@ -25,3 +25,4 @@ What is scripted:
   the fix, sent only after the publisher passes the check's error back to the model.
 - Because the replies are pre-written, the "model" time is not shown; it would not mean anything.
 - The approvals are typed by the script.
+- The short pauses between steps are added so a viewer can read them; they don't change any number shown.
