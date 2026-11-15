@@ -11,9 +11,21 @@ How sure each item is:
 
 Severity is about adoption: **Critical** means a security reviewer would block LLP outright. **High** means a big company wouldn't deploy it without the fix. **Medium** means it's needed before 1.0. **Low** means polish.
 
+## Fix status
+
+Fixes are tracked here as they land. Each fixed finding has a check in `test/security.mjs` (part of `npm test`) that asserts the safe behaviour, and its line in `npm run redteam` now prints `FIXED`.
+
+| Finding | Status | Notes |
+|---|---|---|
+| RT-01 fail closed without keys | Fixed | Behaviour change: a host with no keys now refuses everything. Development hosts must pass `allowUnsigned: true`. |
+| RT-02 bound versions, key-epoch ordering | Fixed | Versions must be safe integers at most one year ahead; fleet manifests carry `epoch` = keyring, so a rotation outranks a poisoned version. |
+| RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
+
 ## 1. Proven findings
 
-### RT-01 A host with no trusted keys skips the signature check (Critical, proven)
+### RT-01 A host with no trusted keys skips the signature check (Critical, proven) — FIXED
+
+**Fixed:** `applyNow` refuses every manifest when `trustedKeys` is empty, unless the host was created with `allowUnsigned: true` (exactly `true`), which logs a `security` warning. Tests SEC1 to SEC3.
 
 **In plain words:** if an app forgets to give the host its list of trusted publisher keys, or the list fails to load, the host doesn't refuse updates. It accepts all of them. It's like a door that unlocks itself whenever the key list goes missing.
 
@@ -23,7 +35,9 @@ Severity is about adoption: **Critical** means a security reviewer would block L
 
 **Fix:** fail closed. Add `allowUnsigned: true` as an explicit option for the shadow check and tests, and refuse otherwise. Log the mode loudly.
 
-### RT-02 Version numbers have no limit (High, proven)
+### RT-02 Version numbers have no limit (High, proven) — FIXED
+
+**Fixed:** a version must be a positive safe integer, at most one year of milliseconds ahead of the larger of the running version and the host's clock. Manifests are ordered as `(epoch, version)`; a fleet host accepts an epoch only up to its trusted keyring number, and the controller stamps each manifest with its keyring and re-signs releases in the new epoch on rotation. Tests SEC6 to SEC10. Limit: a device whose clock is more than a year slow refuses timestamp versions until its clock is fixed or `maxVersionAheadMs` is raised.
 
 **In plain words:** each release carries a version number, and hosts only accept a higher number than the one they're running. Nothing caps that number. So one signed release with a gigantic number, from a bug, a bad clock or a leaked key, leaves no higher number to use. That device then refuses every future update, and rotating keys doesn't help.
 
@@ -97,7 +111,9 @@ Severity is about adoption: **Critical** means a security reviewer would block L
 
 ## 3. Security, trust and keys
 
-### RT-05 A fresh host isn't tied to one app (Medium, proven)
+### RT-05 A fresh host isn't tied to one app (Medium, proven) — FIXED
+
+**Fixed:** `LiveHost` takes an `app` option, and a host that checks signatures refuses to run anything until it has one. Fleet agents pin it from the keyring, `connectServer` from its `app` option, server tenants from their tenant name. Tests SEC4 and SEC5.
 
 **In plain words:** a brand-new host remembers which app it is only after the first release lands. Until then it accepts a release for any app, as long as a trusted key signed it. If one publisher key signs several apps, a device can end up running the wrong one.
 

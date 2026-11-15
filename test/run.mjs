@@ -21,6 +21,7 @@ const v2 = await put("tasks_v2.wasm"), broken = await put("tasks_broken.wasm"), 
 const haptics = [];
 let lastTree = null;
 const host = new LiveHost({
+  app: "demo.tasks",
   trustedKeys: [publisher.publicJwk],
   capabilities: { haptic: async (ms) => { haptics.push(+ms); }, geo: async () => "41.88, -87.63 (test fixture)" },
   onRender: (t) => { lastTree = t; },

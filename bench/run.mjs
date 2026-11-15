@@ -58,7 +58,7 @@ if (want("pipeline")) {
   const v2 = await put(v2bytes);
   for (let i = 0; i < N; i++) {
     const v2i = await put(withNonce(v2bytes, `m${i}`));
-    const host = new LiveHost({ trustedKeys: [pub.publicJwk] });
+    const host = new LiveHost({ app: "demo.tasks", trustedKeys: [pub.publicJwk] });
     let m = { app: "demo.tasks", version: 1, layers: { main: tasks, footer: statsL }, order: ["main", "footer"] };
     await host.apply(m, await signManifest(m, pub.privateKey), fetchBlob);
     for (const t of ["Buy milk", "Call mom"]) { host.setBound("draft", t); await host.dispatch("main", "add"); }
@@ -71,7 +71,7 @@ if (want("pipeline")) {
   }
 
   // plain swaps: a new build of the same layer, on one long-running host
-  const host = new LiveHost({ trustedKeys: [pub.publicJwk] });
+  const host = new LiveHost({ app: "demo.tasks", trustedKeys: [pub.publicJwk] });
   let m = { app: "demo.tasks", version: 1, layers: { main: v2, footer: statsL }, order: ["main", "footer"] };
   await host.apply(m, await signManifest(m, pub.privateKey), fetchBlob);
   for (const t of ["Buy milk", "Call mom"]) { host.setBound("draft", t); await host.dispatch("main", "add"); }
@@ -159,7 +159,7 @@ if (want("rollback")) {
   const fetchBlob = async (h) => store.get(h);
   const v2 = await put(read("tasks_v2.wasm")), statsL = await put(read("stats.wasm"));
   const trapBytes = read("tasks_trap.wasm"), brokenBytes = read("tasks_broken.wasm");
-  const host = new LiveHost({ trustedKeys: [pub.publicJwk] });
+  const host = new LiveHost({ app: "demo.tasks", trustedKeys: [pub.publicJwk] });
   let m = { app: "demo.tasks", version: 1, layers: { main: v2, footer: statsL }, order: ["main", "footer"] };
   await host.apply(m, await signManifest(m, pub.privateKey), fetchBlob);
   for (const t of ["Buy milk", "Call mom"]) { host.setBound("draft", t); await host.dispatch("main", "add"); }

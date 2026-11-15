@@ -158,6 +158,7 @@ export class ServerHost {
     let t = this.tenants.get(app);
     if (t) return t;
     const host = new ServerLiveHost({
+      app,
       trustedKeys: this.trustedKeys, windowMs: this.windowMs, idleMs: this.idleMs, limits: this.limits,
       // Providers get the tenant name so secrets can be scoped per app; layers only see results.
       capabilities: Object.fromEntries(Object.entries(this.capabilities).map(([n, f]) => [n, (arg, ctx) => f(arg, { ...ctx, app })])),

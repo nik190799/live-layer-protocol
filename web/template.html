@@ -245,6 +245,7 @@ const blobs = new Map();
 let build = 0;
 const builds = new Map(); // manifest version -> friendly build number
 const host = new LiveHost({
+  app: "demo.tasks",
   trustedKeys: trusted,
   capabilities: {
     haptic: async (ms) => { try { navigator.vibrate?.(+ms || 20); } catch {} const s = $("screen"); s.classList.remove("buzz"); void s.offsetWidth; s.classList.add("buzz"); },

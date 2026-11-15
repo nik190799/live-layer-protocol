@@ -94,6 +94,8 @@ export class FleetAgent {
     if (!id) throw new Error("FleetAgent needs a stable host id");
     Object.assign(this, { host, id, channel, trust, send });
     host.trustedKeys = trust.releaseKeys();
+    host.app ??= trust.app;            // pin the host to the keyring's app from the start (RT-05)
+    host.maxEpoch = trust.version;     // a manifest may claim an epoch only up to the keyring this host trusts (RT-02)
     this.target = 0;
     this.reverts = 0;
     this.queue = Promise.resolve();
@@ -136,7 +138,8 @@ export class FleetAgent {
       const r = await this.trust.update(msg.doc, msg.sigs);
       if (!r.ok) return this.report("keyring-rejected", r.reason), r;
       this.host.trustedKeys = this.trust.releaseKeys();
-      const missed = this.state === "rejected" && /signature/.test(this.reason);
+      this.host.maxEpoch = this.trust.version;
+      const missed = this.state === "rejected" && /signature|epoch/.test(this.reason);
       this.report("keyring", `keyring ${r.keyring}`);
       // A release signed by the new key may have arrived first (e.g. from a cache); ask again.
       if (missed) this.hello();
@@ -151,11 +154,13 @@ export class FleetAgent {
     if ((m.channel ?? null) !== (this.channel ?? null)) return this.reject(m, `manifest is for channel ${m.channel ?? "(none)"}, host is on ${this.channel ?? "(none)"}`);
     // Older than what's running: a late duplicate or a replay. Ignored, and it doesn't change the
     // host's reported state (the core would refuse it anyway, SPEC section 6 step 2).
-    if (m.version < this.host.version) return { state: "stale", reason: `v${m.version} < running v${this.host.version}` };
+    // Versions are ordered as (epoch, version): a new keyring epoch restarts the order (RT-02).
+    const cmp = this.host.compareVersion(m);
+    if (cmp < 0) return { state: "stale", reason: `v${m.version} (epoch ${m.epoch ?? 0}) < running v${this.host.version} (epoch ${this.host.epoch})` };
     this.target = m.version;
     this.percent = m.rollout?.percent ?? 100;
     // A share increase re-signs the same version; hosts already on it have nothing to do.
-    if (m.version === this.host.version) return this.done(this.state === "reverted" ? "reverted" : "live", "already on this version");
+    if (cmp === 0) return this.done(this.state === "reverted" ? "reverted" : "live", "already on this version");
     if (!(await inRollout(m, this.id))) return this.done("skipped", `not in the ${m.rollout.percent}% share`);
     let r;
     try { r = await this.host.apply(m, msg.sig, fetchBlob); } catch (e) { r = { ok: false, reason: e.message }; }

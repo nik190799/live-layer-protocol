@@ -14,7 +14,7 @@ const publisher = await generatePublisherKey();
 const v2 = await put("tasks_v2.wasm"), hang = await put("tasks_hang.wasm"), hangMigrate = await put("tasks_hang_migrate.wasm"), stats = await put("stats.wasm");
 
 let lastTree = null;
-const host = new LiveHost({ trustedKeys: [publisher.publicJwk], onRender: (t) => { lastTree = t; } });
+const host = new LiveHost({ app: "demo.tasks", trustedKeys: [publisher.publicJwk], onRender: (t) => { lastTree = t; } });
 const textOf = (n) => !n ? "" : n.k === "text" ? n.t : (n.c || []).map(textOf).join(" ");
 const screen = () => lastTree.map((s) => s.error ? `!! ${s.error}` : textOf(s.tree)).join(" | ");
 let version = 0;
@@ -98,7 +98,7 @@ check("S11b typed input and clicks sent without waiting keep their order", host.
   `${host.kv.get(`tasks.${nOrder}.text`)}, ${host.kv.get(`tasks.${nOrder + 1}.text`)}`);
 
 // 8. No previous version: the slot shows an error for that render, then recovers in a fresh worker.
-const solo = new LiveHost({ onRender: (t) => { lastTree = t; } });
+const solo = new LiveHost({ allowUnsigned: true, onRender: (t) => { lastTree = t; } });
 solo.setBound("draft", "");
 let m = { app: "solo", version: 1, layers: { main: hang }, order: ["main"] };
 await solo.apply(m, "", fetchBlob);
@@ -116,7 +116,7 @@ check("S13 swap stays fast in a worker (median of 10 swaps < 25 ms)", swaps[5] <
 check("S14 two-layer render stays well under a 60 fps frame", per < 4, `${per.toFixed(3)} ms per render`);
 
 // 10. Opt-in inline mode (for simulating many devices in one process) still runs the app.
-const inl = new LiveHost({ limits: { isolation: "inline" }, onRender: (t) => { lastTree = t; } });
+const inl = new LiveHost({ allowUnsigned: true, limits: { isolation: "inline" }, onRender: (t) => { lastTree = t; } });
 m = { app: "inline", version: 1, layers: { main: v2, footer: stats }, order: ["main", "footer"] };
 r = await inl.apply(m, "", fetchBlob);
 inl.setBound("draft", "Inline task"); await inl.dispatch("main", "add");

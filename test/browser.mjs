@@ -15,7 +15,7 @@ const out = {}, logs = [];
 const get = async (f) => new Uint8Array(await (await fetch("/build/" + f)).arrayBuffer());
 const store = new Map(); const put = async (f) => { const b = await get(f); const h = await sha256(b); store.set(h, b); return h; };
 const [v2, hang, stats] = [await put("tasks_v2.wasm"), await put("tasks_hang.wasm"), await put("stats.wasm")];
-let last = null; const host = new LiveHost({ onRender: (t) => { last = t; }, onLog: (e) => logs.push(e.kind + ": " + e.msg) });
+let last = null; const host = new LiveHost({ allowUnsigned: true, onRender: (t) => { last = t; }, onLog: (e) => logs.push(e.kind + ": " + e.msg) });
 let v = 0; const ship = (main) => host.apply({ app: "a", version: ++v, layers: { main, footer: stats }, order: ["main", "footer"] }, "", async (h) => store.get(h));
 // main-thread heartbeat: the longest gap between ticks is how long the page was frozen
 let gap = 0, prev = performance.now(); setInterval(() => { const n = performance.now(); gap = Math.max(gap, n - prev); prev = n; }, 4);
