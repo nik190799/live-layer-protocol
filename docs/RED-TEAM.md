@@ -52,3 +52,45 @@ Severity is about adoption: **Critical** means a security reviewer would block L
 **Safe behaviour:** each slot sees only its own keys, plus keys that another slot has explicitly shared with it. Only the host can write host-internal keys.
 
 **Fix:** give each slot its own key prefix and add a `shares` field to the manifest (for example `footer` reads `main:tasks.*`). Move `__schema.*` out of reach of layers. Filter writes the same way `shared/` writes are already filtered on clients.
+
+## 2. Safety of AI changes and the AI publisher
+
+### AI-01 Text from hosts is fed back to the model unfiltered (High, reasoned)
+
+**In plain words:** when a host refuses a release, the AI loop passes the host's stated reason to the model as feedback, so the model can fix the problem. The stream server accepts connections from any machine on the network without checking who they are (`ai/stream.mjs` and `tools/publisher.mjs` listen on every interface). So anyone who can reach that port can write text that ends up in the model's prompt. They can also fake an "ack" so a release looks like it went live.
+
+**Safe behaviour:** only known hosts can report back. Their reports are treated as data: they're short, quoted and labelled as untrusted, never presented as instructions.
+
+**Fix:** bind the publisher to localhost by default and authenticate hosts (see RT-03). Cap reason text at a few hundred characters and wrap it as quoted data in `ai/prompt.mjs` `feedback()`.
+
+### AI-02 The reviewer sees a summary the model wrote (Medium, reasoned)
+
+**In plain words:** the approval screen opens with a one-line summary written by the model itself. The person approving may rely on it more than on the diff. A mistaken or misleading summary passes straight through.
+
+**Safe behaviour:** the summary the person relies on comes from the tool, not the model. It says which keys the new code writes, which capabilities it asks for, and whether its schema changed.
+
+**Fix:** compute a "what changed" box from the compiled layer and the shadow run (keys written, capabilities requested, schema change). Show it above the model's summary, and mark the model's summary as the model's claim.
+
+### AI-03 Layers get every capability the host offers (High, reasoned)
+
+**In plain words:** a host grants capabilities (haptics, location, payments, calls to the server) to every layer on it. A release can't say "this layer needs only haptics", so a reviewer can't see that a change starts using something new. The host can't refuse that capability for that layer alone.
+
+**Safe behaviour:** each slot declares the capabilities it needs in the signed manifest. The host grants only those, and newly requested capabilities are highlighted at approval time and in rollout reports.
+
+**Fix:** add `caps: { slot: [names] }` to the manifest (it's inside the signature already). Make `runCapability` and the server's capability loop check it, and have the AI loop's approval screen show capability changes.
+
+### AI-04 The shadow check only covers what it happens to try (Medium, reasoned)
+
+**In plain words:** before going live, the new layer runs against a copy of the state and its buttons get clicked a couple of times. Bugs that only show up later, after many events, on a particular date or with unusual input, still pass. This is the known "wrong but running" gap, and it matters most for AI-written code, because nobody wrote it line by line.
+
+**Safe behaviour:** AI-written releases go through a staged rollout by default, and the shadow check runs longer on realistic data.
+
+**Fix:** have the AI loop publish through `fleet.rollout()` with a small first step by default. Let apps ship property checks (invariants such as "the task count matches the number of task keys") that the shadow check and the hosts evaluate after each event.
+
+### AI-05 Old model output becomes part of the next prompt (Low, reasoned)
+
+**In plain words:** the AI loop saves the live source and sends it to the model with every new request. Comments that an earlier answer left in the code are carried forward and can steer later answers.
+
+**Safe behaviour:** the person sees and approves every comment that lands in the live source, and the prompt marks the source as data.
+
+**Fix:** show comment changes clearly in the diff, and frame the source in `firstRequest()` as reference material, not instructions.
