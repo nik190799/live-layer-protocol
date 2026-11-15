@@ -13,7 +13,7 @@
 //   partial shares and gets each release when it reaches 100%.
 // trust: a TrustStore (host/fleet.js) when the app's releases come from a fleet controller. Keyrings
 //   the server relays are checked against it, so a key rotation reaches clients behind the server.
-// onErased(): called when the server erased this user's data (section 13). The default clears this
+// onErased(): called when the server erased this user's data (section 14). The default clears this
 //   device's local copy of the app's state (everything except the shared/ mirror).
 // Works with the browser WebSocket and Node's global WebSocket.
 import { b64 } from "./llp-core.js";
@@ -121,7 +121,7 @@ export function connectServer(host, url, { app, token, watch, channel, id, trust
     });
   };
 
-  // ---------- privacy (section 13) ----------
+  // ---------- privacy (section 14) ----------
   function ask(op) {
     const rid = crypto.randomUUID();
     return new Promise((resolve, reject) => { privacy.set(rid, { resolve, reject }); if (!send({ t: "privacy", id: rid, op })) { privacy.delete(rid); reject(new Error("offline")); } });

@@ -89,7 +89,7 @@ export function codec(key, { previous = [] } = {}) {
     decode(aad, data) {
       const s = typeof data === "string" ? data : data.toString("utf8");
       if (!isSealed(s)) return { text: s, sealed: false, stale: !!key };
-      if (!keys.length) throw new SealError("this data is encrypted; start with the data key (see SPEC section 13)");
+      if (!keys.length) throw new SealError("this data is encrypted; start with the data key (see SPEC section 14)");
       let last;
       for (let i = 0; i < keys.length; i++) {
         try { return { text: open(keys[i], aad, s).toString("utf8"), sealed: true, stale: i > 0 }; } catch (e) { last = e; }

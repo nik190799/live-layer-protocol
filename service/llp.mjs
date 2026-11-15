@@ -84,7 +84,7 @@ else if (cmd === "status") {
   catch { die(`llpd isn't running on port ${PORT}`); }
 }
 else if (cmd === "export" || cmd === "erase") {
-  // This device's copy of an app's state (SPEC section 13). Server-side data is exported or erased by
+  // This device's copy of an app's state (SPEC section 14). Server-side data is exported or erased by
   // the app's server host (ServerHost.exportUser / eraseUser, or the user's own client with selfService).
   const [app] = rest;
   if (!app) die(`usage: llp ${cmd} <app>`);

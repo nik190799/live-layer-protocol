@@ -1,0 +1,52 @@
+[
+ {
+  "name": "sorted keys, no whitespace",
+  "json": "{ \"b\": 1, \"a\": [ 1, 2 ], \"c\": { \"z\": null, \"y\": true } }",
+  "canonical": "{\"a\":[1,2],\"b\":1,\"c\":{\"y\":true,\"z\":null}}"
+ },
+ {
+  "name": "keys sort by UTF-16 code units, not bytes or code points",
+  "json": "{\"￿\":1,\"😀\":2,\"a\":3,\"Z\":4}",
+  "canonical": "{\"Z\":4,\"a\":3,\"😀\":2,\"￿\":1}"
+ },
+ {
+  "name": "integers lose a trailing .0",
+  "json": "{\"v\":1.0,\"w\":100e0,\"x\":-0}",
+  "canonical": "{\"v\":1,\"w\":100,\"x\":0}"
+ },
+ {
+  "name": "number formatting follows ECMAScript Number::toString",
+  "json": "[1e21,1e20,123456789012345680000,0.000001,1e-7,1.5e-7,0.1,5e-324,1.7976931348623157e308,-2.5e-8]",
+  "canonical": "[1e+21,100000000000000000000,123456789012345680000,0.000001,1e-7,1.5e-7,0.1,5e-324,1.7976931348623157e+308,-2.5e-8]"
+ },
+ {
+  "name": "safe-integer edge survives",
+  "json": "[9007199254740991,-9007199254740991,1794719346499]",
+  "canonical": "[9007199254740991,-9007199254740991,1794719346499]"
+ },
+ {
+  "name": "string escapes match JSON.stringify",
+  "json": "[\"\\u0001\\u001f\",\"\\b\\f\\n\\r\\t\",\"\\\"\\\\\",\"\\/\",\"\\u007f\",\"\\u2028\\u2029\",\"é\",\"😀\"]",
+  "canonical": "[\"\\u0001\\u001f\",\"\\b\\f\\n\\r\\t\",\"\\\"\\\\\",\"/\",\"\",\"  \",\"é\",\"😀\"]"
+ },
+ {
+  "name": "duplicate keys: the last one wins",
+  "json": "{\"a\":1,\"a\":2}",
+  "canonical": "{\"a\":2}"
+ },
+ {
+  "name": "empty containers",
+  "json": "{\"a\":{},\"b\":[],\"c\":\"\"}",
+  "canonical": "{\"a\":{},\"b\":[],\"c\":\"\"}"
+ },
+ {
+  "name": "a lone surrogate has no canonical form (I-JSON): refuse",
+  "json": "{\"a\":\"\\ud800\"}",
+  "error": true
+ },
+ {
+  "name": "a lone low surrogate is refused too",
+  "json": "[\"x\\udc00y\"]",
+  "error": true
+ }
+]

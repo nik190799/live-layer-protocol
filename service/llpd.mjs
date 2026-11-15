@@ -137,7 +137,7 @@ const server = createServer((req, res) => {
     return res.end("This needs the UI token. Run \"llp open\" to get the link.\n");
   }
   if (url.pathname === "/") { res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); return res.end(uiHtml()); }
-  // This device's copy of one app's state (section 13): everything llpd keeps for it, or erase it.
+  // This device's copy of one app's state (section 14): everything llpd keeps for it, or erase it.
   if ((url.pathname === "/export" || url.pathname === "/erase") && okToken(url.searchParams.get("token"))) {
     const app = apps.get(url.searchParams.get("app") ?? "");
     if (!app) { res.writeHead(404, { "content-type": "application/json" }); return res.end(JSON.stringify({ error: "no such app" })); }

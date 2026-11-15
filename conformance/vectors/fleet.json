@@ -1,0 +1,480 @@
+[
+ {
+  "name": "a host applies its channel's release and reports live",
+  "keyring": {
+   "app": "demo.tasks",
+   "keyring": 1,
+   "root": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "N6CoQT8RZZfh2n-tnhkIQNcHqbIYT2bIyk9o_jHeiP4",
+      "y": "X9yXWSilV0LwrPJE4YWkSanvBdUfcsfBAMHY1vrCmAo",
+      "crv": "P-256"
+     }
+    ],
+    "threshold": 1
+   },
+   "release": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+      "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+      "crv": "P-256"
+     }
+    ]
+   }
+  },
+  "id": "host-1",
+  "channel": "stable",
+  "now": 1767225600000,
+  "steps": [
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "ngM+/USAhUlgWQaBzQpC+SIp8V6S5aqMFleR+sFepR7fs0gJKo/gF/vRyFw4HwGJ8egUd7BT/TKH+AwxtRbfCw=="
+    },
+    "state": "live",
+    "version": 1
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "Zz0QGKEAG3mZ/UExXIxYHy9fNhoqCjttylHVFx1cmGepK7LCn3qIHr2pw9SrCw/x4pCywdJhqCF/NfOf4PwxfA=="
+    },
+    "state": "live",
+    "version": 1,
+    "note": "same version re-signed: nothing to do"
+   }
+  ]
+ },
+ {
+  "name": "channels are signed: a beta release can't be replayed onto stable",
+  "keyring": {
+   "app": "demo.tasks",
+   "keyring": 1,
+   "root": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "N6CoQT8RZZfh2n-tnhkIQNcHqbIYT2bIyk9o_jHeiP4",
+      "y": "X9yXWSilV0LwrPJE4YWkSanvBdUfcsfBAMHY1vrCmAo",
+      "crv": "P-256"
+     }
+    ],
+    "threshold": 1
+   },
+   "release": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+      "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+      "crv": "P-256"
+     }
+    ]
+   }
+  },
+  "id": "host-1",
+  "channel": "stable",
+  "now": 1767225600000,
+  "steps": [
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "beta",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "z22Z55XM6yHLno6TkUEmOXroIUXcRNoV0XDMy92pkNni8CWocRue5PhlIhZ7LKqjuc299MyvpEa3IAjBqSXcTQ=="
+    },
+    "state": "rejected",
+    "code": "channel"
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "+wCUjSu3V2eISftwYyibOMtbxHY01Q7ywzpKpZBrDKl6B6LcUE2l9kVRlG+IyA1AX0mAWEtprP51sBM1Irg50g=="
+    },
+    "state": "rejected",
+    "code": "channel"
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "XqYvIz9v910IaEUrWKAd7F7rQeVU81cbg2cJNUjOJJCbzUr7qU9vMeSfDijnN31L2AJcg/HFQm07xOkd16BYIg=="
+    },
+    "state": "rejected",
+    "code": "untrusted"
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "other",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "YiD5PD890HAtkPjalIKWDwH8XqoHbbfdS12O/oUT76cu2kBGX8vlwtDUzimuhF/LaolVWYOLVxqdy04guzn3LA=="
+    },
+    "state": "rejected",
+    "code": "wrong_app"
+   }
+  ]
+ },
+ {
+  "name": "percentage rollouts: hosts outside the share report skipped",
+  "keyring": {
+   "app": "demo.tasks",
+   "keyring": 1,
+   "root": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "N6CoQT8RZZfh2n-tnhkIQNcHqbIYT2bIyk9o_jHeiP4",
+      "y": "X9yXWSilV0LwrPJE4YWkSanvBdUfcsfBAMHY1vrCmAo",
+      "crv": "P-256"
+     }
+    ],
+    "threshold": 1
+   },
+   "release": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+      "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+      "crv": "P-256"
+     }
+    ]
+   }
+  },
+  "id": "host-1",
+  "channel": "stable",
+  "now": 1767225600000,
+  "steps": [
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ],
+      "rollout": {
+       "percent": 0,
+       "seed": "s"
+      }
+     },
+     "sig": "rDYyQIZg8EwSj2VSruUCP36GksRTQ0nkX7CkBafgeTsHmuAyA9meBVmUfbYpkmcJdswoNeC8EfhSb1pbaKoh7w=="
+    },
+    "state": "skipped",
+    "version": 0
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 1,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ],
+      "rollout": {
+       "percent": 100,
+       "seed": "s"
+      }
+     },
+     "sig": "dpl+7gADlVZnQ0LrCzNWRi6fkQF5Qh0s6CA5wxWf4Y/G2aAAEOB1Uv6RUuDNdnl2nzAR5rap57C+J8TL+K8v2A=="
+    },
+    "state": "live",
+    "version": 1
+   }
+  ]
+ },
+ {
+  "name": "the epoch limit follows the keyring, and a new keyring revokes the old release key",
+  "keyring": {
+   "app": "demo.tasks",
+   "keyring": 1,
+   "root": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "N6CoQT8RZZfh2n-tnhkIQNcHqbIYT2bIyk9o_jHeiP4",
+      "y": "X9yXWSilV0LwrPJE4YWkSanvBdUfcsfBAMHY1vrCmAo",
+      "crv": "P-256"
+     }
+    ],
+    "threshold": 1
+   },
+   "release": {
+    "keys": [
+     {
+      "key_ops": [
+       "verify"
+      ],
+      "ext": true,
+      "kty": "EC",
+      "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+      "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+      "crv": "P-256"
+     }
+    ]
+   }
+  },
+  "id": "host-1",
+  "channel": "stable",
+  "now": 1767225600000,
+  "steps": [
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 2,
+      "version": 5,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "mfHFNqnFUW+4ACoSQ6VhFs53pJ9jswUF0xMS/DPsSaI1Yqivtp4I0FK96AQ/2bkVzCC5AYJnghfIp3CF+TUOsQ=="
+    },
+    "state": "rejected",
+    "code": "bad_version"
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 5,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "0gZ01ycUgb8pQVnfW72oHe9ob5ZEHbiSsHP07PSnHGrTjmWy3ssM9iuMBqKqS2dl4ACBcvDzeaoGKxzw+21MDg=="
+    },
+    "state": "live",
+    "version": 5
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 1,
+      "version": 3,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "qETL6JYnU++hq4W8x4IGGwBEaUeovPn0C0B5Cu3zR1iveBTalW7bGmEkDprQhghrREig/6ahiI6PFBtsTs/C/w=="
+    },
+    "state": null,
+    "note": "older than running: ignored without a report"
+   },
+   {
+    "msg": {
+     "t": "keyring",
+     "doc": {
+      "app": "demo.tasks",
+      "keyring": 2,
+      "root": {
+       "keys": [
+        {
+         "key_ops": [
+          "verify"
+         ],
+         "ext": true,
+         "kty": "EC",
+         "x": "N6CoQT8RZZfh2n-tnhkIQNcHqbIYT2bIyk9o_jHeiP4",
+         "y": "X9yXWSilV0LwrPJE4YWkSanvBdUfcsfBAMHY1vrCmAo",
+         "crv": "P-256"
+        }
+       ],
+       "threshold": 1
+      },
+      "release": {
+       "keys": [
+        {
+         "key_ops": [
+          "verify"
+         ],
+         "ext": true,
+         "kty": "EC",
+         "x": "xYsoMN5b1K99fkmOTJ3ApmhBvTbN43zR-IADos2TxEg",
+         "y": "82RYa4wjRuCurw7gc4UwBEO7na9OG3o5_wIBKQ4Ekqs",
+         "crv": "P-256"
+        }
+       ]
+      }
+     },
+     "sigs": [
+      {
+       "kid": "f1c3eab65fffee28",
+       "sig": "kuG1QWpjvMvAyU8UCS46MukAg3hKWUN9y02q1VrtSDt3CX3OH+vMBzeFbQZNDiTef6LIc5ooSUrV5GNmgvfKdg=="
+      }
+     ]
+    },
+    "state": "keyring"
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 2,
+      "version": 6,
+      "layers": {
+       "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "CsNQjrp7KvakwHNTGVkXdbm21FmbfBHsUEqEZx0vyQHhYQW4h3w5GnoKGU7XiommIDPUmcIJIzABn7td9bnm+g=="
+    },
+    "state": "rejected",
+    "code": "untrusted",
+    "note": "signed by the revoked key"
+   },
+   {
+    "msg": {
+     "t": "manifest",
+     "manifest": {
+      "app": "demo.tasks",
+      "channel": "stable",
+      "epoch": 2,
+      "version": 1,
+      "layers": {
+       "main": "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053"
+      },
+      "order": [
+       "main"
+      ]
+     },
+     "sig": "rEE2+cq/GlfeXo6krGuIJ+/cIDB19UVa9yBASFYYDdWCHLffw6pqInnIy3EUljizmTrZDdS0ucXtI03Xt9oc/Q=="
+    },
+    "state": "live",
+    "version": 1
+   }
+  ]
+ }
+]

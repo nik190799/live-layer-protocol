@@ -11,7 +11,7 @@
 // - Release channels (10.5): each channel of an app is a lane with its own release and its own server
 //   workers, over the tenant's one store. Clients say their channel in hello and get only that lane's
 //   releases. Older releases stay served while a partial rollout leaves clients on them.
-// - Privacy (section 13): a person's data, found by the manifest's personal prefixes, can be exported
+// - Privacy (section 14): a person's data, found by the manifest's personal prefixes, can be exported
 //   or erased, with an audit log. With a data key, everything it saves is encrypted at rest.
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import { WebSocketServer } from "ws";
@@ -512,7 +512,11 @@ export class ServerHost {
         onLog: null,
       };
       let ws, closed = false;
-      const agent = new FleetAgent({ host: adapter, id: `${this.fleetId}/${channel}`, channel, trust: this.trust, deviceKey: this.deviceKey, freshness, relay: true, send: (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m)) });
+      // All channels share one keyring. Each agent gets a view of it where the keyring another channel's
+      // agent already accepted counts as accepted (the store itself refuses a replayed keyring, 12.4).
+      const trust = Object.create(this.trust);
+      trust.update = (doc, sigs) => doc?.keyring === this.trust.version && canonical(doc) === canonical(this.trust.doc) ? Promise.resolve({ ok: true, keyring: doc.keyring, same: true }) : this.trust.update(doc, sigs);
+      const agent = new FleetAgent({ host: adapter, id: `${this.fleetId}/${channel}`, channel, trust, deviceKey: this.deviceKey, freshness, relay: true, send: (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m)) });
       const entry = { agent, adapter, close: () => { closed = true; ws?.close(); } };
       this.agents.set(channel, entry);
       const connect = () => {
@@ -622,7 +626,7 @@ export class ServerHost {
     if (!lane) return reply(id, new RemoteError("not_found", `no release on channel ${channel ?? "(none)"}`));
     const key = typeof idem === "string" && idem ? `${user}:${idem}` : null;
     if (key && t.idem.has(key)) return reply(id, await t.idem.get(key));
-    // The record of this call was erased with the user's data (section 13): never run it a second time.
+    // The record of this call was erased with the user's data (section 14): never run it a second time.
     if (key && t.tombs.size && t.tombs.has(tomb(key))) return reply(id, new RemoteError("erased", "this call's record was erased with the user's data; it is not run again"));
     if (t.pending >= this.maxPending) return reply(id, new RemoteError("overloaded", `${t.pending} calls already queued for this app`));
     t.pending++;
@@ -662,7 +666,7 @@ export class ServerHost {
     return out;
   }
 
-  // ---------- privacy: a person's data (PR-02, SPEC section 13) ----------
+  // ---------- privacy: a person's data (PR-02, SPEC section 14) ----------
   // The personal prefixes in force: from every release this tenant serves (all channels, pinned ones
   // too), plus private prefixes, which name their reader the same way.
   personalPrefixes(t) {

@@ -29,6 +29,9 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/privacy.mjs`, `test/at-rest-hosts.mjs` | 33 checks: per-person export and erase with an audit log, and encryption at rest for the server host, `llpd` and fleet hosts |
 | `case-studies/`, `docs/CASE-STUDIES.md` | CrowdStrike 2024, Knight 2012, Cloudflare 2019, Fastly 2021 and a hotfix replayed the old way and through LLP; `npm run case-studies` (17 checks) |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
+| `impl/go/` | A second, independent Live Host in Go, written from the spec (client host and fleet agent) |
+| `conformance/`, `docs/CONFORMANCE.md` | 161 language-neutral conformance vectors both hosts pass; what the second implementation found in the spec |
+| `test/interop-go.mjs` | 14 checks: the JS publisher and fleet controller drive Go hosts (and a mixed Go + JS fleet) over real sockets |
 | `service/`, `install/`, `Install-LiveLayer.cmd` | Per-device service, CLI and installers |
 | `web/` | Browser Live Host page (`build.py` inlines the core and layers into `index.html`) |
 
@@ -40,7 +43,7 @@ Requires Node 22+. The compiled layers are committed in `build/`, so no compiler
 git clone https://github.com/nik190799/live-layer-protocol.git
 cd live-layer-protocol
 npm install
-npm test          # 267 checks: core rules, security fixes, the layer sandbox, the service, live over-the-wire attacks, the AI loop, fleet, server/client hosts, channels, privacy and encryption at rest, and the case studies
+npm test          # 428 checks: core rules, the conformance vectors, security fixes, the layer sandbox, the service, live over-the-wire attacks, the AI loop, fleet, server/client hosts, channels, privacy and encryption at rest, and the case studies
 ```
 
 ### Watch it update live
@@ -200,7 +203,21 @@ Tests: `npm run test:channels` (15 checks).
 
 ### Personal data and encryption at rest
 
-A manifest's signed `personal` field says which keys belong to which person (`"personal": ["server/profiles/"]` makes `server/profiles/alice/...` alice's). `server.exportUser(app, "alice")` and `server.eraseUser(app, "alice")` find, return or delete that data, with the person's call records and payment effects, and write a hash-chained audit entry; the person's devices clear their own copy. `llp export <app>` and `llp erase <app>` do the device side for the local service. With a data key (`dataKey` for the server host, `LLP_DATA_KEY_CMD`, `LLP_DATA_KEY_FILE` or `LLP_DATA_KEY` for `llpd`, `llp` and `fleet-host`), everything saved except public code is AES-256-GCM encrypted (SPEC section 13). Tests: `npm run test:privacy` (33 checks).
+A manifest's signed `personal` field says which keys belong to which person (`"personal": ["server/profiles/"]` makes `server/profiles/alice/...` alice's). `server.exportUser(app, "alice")` and `server.eraseUser(app, "alice")` find, return or delete that data, with the person's call records and payment effects, and write a hash-chained audit entry; the person's devices clear their own copy. `llp export <app>` and `llp erase <app>` do the device side for the local service. With a data key (`dataKey` for the server host, `LLP_DATA_KEY_CMD`, `LLP_DATA_KEY_FILE` or `LLP_DATA_KEY` for `llpd`, `llp` and `fleet-host`), everything saved except public code is AES-256-GCM encrypted (SPEC section 14). Tests: `npm run test:privacy` (33 checks).
+
+## Second implementation and conformance
+
+`impl/go` is an independent Live Host in Go (wazero for WebAssembly), written from `SPEC.md` without porting the JavaScript. It verifies and swaps layers, migrates, reverts, enforces the sandbox limits, and joins fleets. `conformance/vectors/` holds 161 checks in plain JSON that both hosts pass.
+
+```
+npm run test:conformance        # vectors against the JS host (also part of npm test)
+npm run test:go                 # vectors against the Go host + live interop (needs Go 1.24+)
+cd impl/go && go build -o llp-host ./cmd/llp-host
+./llp-host --key keys/publisher.pub.json ws://localhost:7700            # follow a publisher
+./llp-host --fleet keys/fleet/keyring.pinned.json --id h1 --channel stable ws://localhost:7720
+```
+
+What the second implementation found in the spec, and what isn't covered yet (the server role), is in `docs/CONFORMANCE.md`.
 
 ## Status
 

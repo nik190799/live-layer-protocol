@@ -1,4 +1,4 @@
-// Proof for SPEC section 13 (red-team PR-02 and PR-03): finding, exporting and erasing one person's
+// Proof for SPEC section 14 (red-team PR-02 and PR-03): finding, exporting and erasing one person's
 // data across the server host and their device, with an audit log; and encryption at rest.
 import { readFileSync, writeFileSync, appendFileSync, mkdtempSync, readdirSync, statSync, cpSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
