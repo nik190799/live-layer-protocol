@@ -20,7 +20,7 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/service.mjs` | 10 tests of the per-device service |
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
 | `tools/ai-publish.mjs`, `ai/` | AI publishing loop: prompt, model writes a layer, compile, shadow check, approve, stream |
-| `test/ai-loop.mjs` | 12 tests of the AI loop over real processes |
+| `test/ai-loop.mjs` | 15 tests of the AI loop over real processes |
 | `host/fleet.js`, `tools/fleet.mjs`, `host/fleet-host.mjs` | Fleet operations: channels, percentage rollouts, convergence, key rotation (SPEC section 12) |
 | `test/fleet.mjs` | 28 fleet tests: a 48-host simulation plus 20 hosts in 4 real processes over WebSocket |
 | `host/server-host.mjs`, `host/remote-client.mjs`, `layers/server/` | Server/edge host and client link: shared data, secrets, heavy compute (SPEC section 10) |
@@ -126,7 +126,9 @@ click main add
 
 Then in terminal 1 at `ai>` type a change, for example `show how many tasks are left and add a clear all button`. At `approve?` answer `y` to ship, `n` to discard, or `r <what to change>` to send it back.
 
-Without a key it uses a stub backend that ignores the prompt and returns two canned replies (the first has a compile error), so you can see the whole loop work: `npm run ai`.
+**No API key? Use Claude in a chat as the model:** `node tools/ai-publish.mjs --backend handoff footer=build/stats.wasm`. Each model call is written to `.ai-live/handoff/NNN.request.md` and the loop waits for `NNN.reply.md`; paste the request into Claude (or let a Claude session with file access read it) and save the answer there. A real run, with one rejected attempt, is in [docs/claude-handoff-run](docs/claude-handoff-run/README.md).
+
+Without a key and without `--backend handoff` it uses a stub backend that ignores the prompt and returns two canned replies (the first has a compile error), so you can see the whole loop work: `npm run ai`.
 
 What the shadow check does, before you are asked: it starts the live layers in a worker thread, uses the current layer like a person would to build real-looking state, swaps the candidate in with the real host core, clicks every button it draws, and stops it after 3 seconds if it hangs. The running host still does its own check against its real state when the layer arrives.
 

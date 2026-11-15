@@ -2,7 +2,7 @@
 // shadow-checked against real-looking state, shown to you, and streamed live after you approve.
 //
 // Usage:
-//   node tools/ai-publish.mjs [--port 7700] [--backend claude|stub] [--stub replies.json]
+//   node tools/ai-publish.mjs [--port 7700] [--backend claude|handoff|stub] [--stub replies.json] [--handoff-dir .ai-live/handoff]
 //        [--source layers/tasks-as/app.ts] [--slot main] [--max-attempts 4] [footer=build/stats.wasm ...]
 // Then connect any Live Host, e.g.  node host/node-host.mjs ws://localhost:7700 keys/publisher.pub.json
 //
@@ -10,7 +10,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { claudeBackend, stubBackend } from "../ai/backends.mjs";
+import { claudeBackend, handoffBackend, stubBackend } from "../ai/backends.mjs";
 import { compile, shadowCheck } from "../ai/check.mjs";
 import { SYSTEM, extractCode, feedback, firstRequest, summaryOf } from "../ai/prompt.mjs";
 import { StreamServer, loadKey } from "../ai/stream.mjs";
@@ -29,9 +29,11 @@ mkdirSync(join(WORK, "attempts"), { recursive: true });
 const hasKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 const which = opt("backend", hasKey ? "claude" : "stub");
 const backend = which === "claude" ? await claudeBackend()
+  : which === "handoff" ? handoffBackend(opt("handoff-dir", join(WORK, "handoff")), {
+      onWaiting: ({ readable, reply }) => console.log(`  waiting for the model: request in ${readable}, reply goes in ${reply}`) })
   : stubBackend(opt("stub", new URL("../ai/demo-replies.json", import.meta.url).pathname));
 console.log(`model backend: ${backend.name}`);
-if (which === "stub" && !hasKey) console.log("  (no ANTHROPIC_API_KEY set; set one to use Claude instead)");
+if (which === "stub" && !hasKey) console.log("  (no ANTHROPIC_API_KEY set; set one to use Claude, or use --backend handoff to answer as the model through files)");
 
 // ---- starting point ----
 const current = join(WORK, "current.ts");

@@ -1,0 +1,347 @@
+model backend: handoff (replies read from .ai-live/handoff)
+streaming on ws://localhost:7710; hosts trust keys/publisher.pub.json
+
+ai> 
+· attempt 1/4: asking handoff (replies read from .ai-live/handoff)…
+  waiting for the model: request in .ai-live/handoff/001.request.md, reply goes in .ai-live/handoff/001.reply.md
+  ✓ compiled (12241 bytes)
+  ✗ check: swap refused: llp_view: unbalanced UI in llp_view
+
+· attempt 2/4: asking handoff (replies read from .ai-live/handoff)…
+  waiting for the model: request in .ai-live/handoff/002.request.md, reply goes in .ai-live/handoff/002.reply.md
+  ✓ compiled (12243 bytes)
+  ✓ shadow check passed (state built by using the live app: 10 keys; every button clicked)
+
+Closes the per-task row I left open, so every container is balanced again; the rest of the star change is unchanged.
+
+--- diff ---
+- // "Tasks" main layer — written in AssemblyScript (TypeScript-like).
+- import { col, row, card, heading, label, big, button, input, toggle, end, text,
+-          getNum, setNum, getStr, setStr, eventId, eventValue, cap, fmt } from "./llp";
++ // "Tasks" main layer: tasks can be starred; starred ones are listed first.
++ import { col, row, heading, label, button, input, toggle, end,
++          getNum, setNum, getStr, setStr, eventId, cap } from "./llp";
+  
+- export function llp_schema(): i32 { return 1; }
+- export function llp_migrate(from: i32): void {}
++ // v2 adds tasks.<i>.star (0 or 1). Existing tasks start unstarred.
++ export function llp_schema(): i32 { return 2; }
++ export function llp_migrate(from: i32): void {
++   if (from < 2) {
++     const n = <i32>getNum("tasks.n");
++     for (let i = 0; i < n; i++) setNum("tasks." + i.toString() + ".star", 0);
++   }
++ }
+  
++ function key(i: i32): string { return "tasks." + i.toString(); }
++ function starred(i: i32): bool { return getNum(key(i) + ".star") > 0; }
++ 
++ function drawTask(i: i32): void {
++   const k = key(i);
++   row();
++     button("s:" + i.toString(), starred(i) ? "★" : "☆");
++     toggle("t:" + i.toString(), getNum(k + ".done") > 0, getStr(k + ".text"));
++   end();
++ }
++ 
+  export function llp_view(): void {
+    const n = <i32>getNum("tasks.n");
+-   let done = 0;
+-   for (let i = 0; i < n; i++) if (getNum("tasks." + i.toString() + ".done") > 0) done++;
++   let done = 0, stars = 0;
++   for (let i = 0; i < n; i++) {
++     if (getNum(key(i) + ".done") > 0) done++;
++     if (starred(i)) stars++;
++   }
+  
+    col();
+      heading("Tasks");
+-     label(done.toString() + " of " + n.toString() + " done");
++     label(done.toString() + " of " + n.toString() + " done · " + stars.toString() + " starred");
+      row();
+        input("draft", "Add a task…", "add");
+        button("add", "Add", "primary");
+      end();
+-     for (let i = 0; i < n; i++) {
+-       const k = "tasks." + i.toString();
+-       toggle("t:" + i.toString(), getNum(k + ".done") > 0, getStr(k + ".text"));
+-     }
++     // starred first, then the rest, each group in the order they were added
++     for (let i = 0; i < n; i++) if (starred(i)) drawTask(i);
++     for (let i = 0; i < n; i++) if (!starred(i)) drawTask(i);
+      if (done > 0) button("clear", "Clear done");
+    end();
+  ...
+      if (draft.length == 0) return;
+      const n = <i32>getNum("tasks.n");
+-     setStr("tasks." + n.toString() + ".text", draft);
+-     setNum("tasks." + n.toString() + ".done", 0);
++     setStr(key(n) + ".text", draft);
++     setNum(key(n) + ".done", 0);
++     setNum(key(n) + ".star", 0);
+      setNum("tasks.n", n + 1);
+      setStr("draft", "");
+  ...
+      setNum(k + ".done", now);
+      if (now > 0) cap("haptic", "20");
++   } else if (id.startsWith("s:")) {
++     const k = "tasks." + id.substr(2);
++     setNum(k + ".star", getNum(k + ".star") > 0 ? 0.0 : 1.0);
+    } else if (id == "clear") {
++     // keep the undone tasks, moving text and star together
+      const n = <i32>getNum("tasks.n");
+      let w = 0;
+      for (let i = 0; i < n; i++) {
+-       const k = "tasks." + i.toString();
+-       if (getNum(k + ".done") == 0) {
+-         const t = getStr(k + ".text");
+-         setStr("tasks." + w.toString() + ".text", t);
+-         setNum("tasks." + w.toString() + ".done", 0);
++       if (getNum(key(i) + ".done") == 0) {
++         const t = getStr(key(i) + ".text");
++         const s = getNum(key(i) + ".star");
++         setStr(key(w) + ".text", t);
++         setNum(key(w) + ".done", 0);
++         setNum(key(w) + ".star", s);
+          w++;
+        }
+  ...
+
+--- preview (sample data) ---
+== Tasks ==
+1 of 3 done · 0 starred
+  <Add a task…>
+  [ Add ]
+  [ ☆ ]
+  [ ] sample 1
+  [ ☆ ]
+  [x] sample 2
+  [ ☆ ]
+  [ ] sample 3
+[ Clear done ]
+  Progress (C layer)
+  33%
+███░░░░░░░ 33%
+  [ Where am I? ]
+  [ Buzz ]
+
+approve? [y] ship  [n] discard  [r <change>] revise: LIVE v1794704428349 after 2 attempt(s): host swapped in 7.9 ms
+  time: total 34317 ms = model 25705 + compile 927 + check 210 + your approval 7462 + stream 11
+
+ai> 
+· attempt 1/4: asking handoff (replies read from .ai-live/handoff)…
+  waiting for the model: request in .ai-live/handoff/003.request.md, reply goes in .ai-live/handoff/003.reply.md
+  ✓ compiled (22016 bytes)
+  ✓ shadow check passed (state built by using the live app: 13 keys; every button clicked)
+
+Adds a × delete button on each task, a case-insensitive filter box (state key "filter") with a count of hidden tasks, and shares one move() helper between delete and Clear done.
+
+--- diff ---
+- // "Tasks" main layer: tasks can be starred; starred ones are listed first.
++ // "Tasks" main layer: starred tasks first, a filter box, and delete on each task.
+  import { col, row, heading, label, button, input, toggle, end,
+           getNum, setNum, getStr, setStr, eventId, cap } from "./llp";
+  
+- // v2 adds tasks.<i>.star (0 or 1). Existing tasks start unstarred.
++ // v2 added tasks.<i>.star (0 or 1). The filter text lives in "filter" and needs no migration.
+  export function llp_schema(): i32 { return 2; }
+  export function llp_migrate(from: i32): void {
+  ...
+  function key(i: i32): string { return "tasks." + i.toString(); }
+  function starred(i: i32): bool { return getNum(key(i) + ".star") > 0; }
++ function matches(i: i32, q: string): bool {
++   return q.length == 0 || getStr(key(i) + ".text").toLowerCase().includes(q);
++ }
+  
+  function drawTask(i: i32): void {
+  ...
+      button("s:" + i.toString(), starred(i) ? "★" : "☆");
+      toggle("t:" + i.toString(), getNum(k + ".done") > 0, getStr(k + ".text"));
++     button("d:" + i.toString(), "×", "danger");
+    end();
+  }
+  
++ // copy task `from` into slot `to`
++ function move(from: i32, to: i32): void {
++   setStr(key(to) + ".text", getStr(key(from) + ".text"));
++   setNum(key(to) + ".done", getNum(key(from) + ".done"));
++   setNum(key(to) + ".star", getNum(key(from) + ".star"));
++ }
++ 
+  export function llp_view(): void {
+    const n = <i32>getNum("tasks.n");
+-   let done = 0, stars = 0;
++   const q = getStr("filter").toLowerCase();
++   let done = 0, stars = 0, shown = 0;
+    for (let i = 0; i < n; i++) {
+      if (getNum(key(i) + ".done") > 0) done++;
+      if (starred(i)) stars++;
++     if (matches(i, q)) shown++;
+    }
+  
+  ...
+      heading("Tasks");
+      label(done.toString() + " of " + n.toString() + " done · " + stars.toString() + " starred");
++     input("filter", "Filter tasks…");
+      row();
+        input("draft", "Add a task…", "add");
+  ...
+      end();
+      // starred first, then the rest, each group in the order they were added
+-     for (let i = 0; i < n; i++) if (starred(i)) drawTask(i);
+-     for (let i = 0; i < n; i++) if (!starred(i)) drawTask(i);
++     for (let i = 0; i < n; i++) if (starred(i) && matches(i, q)) drawTask(i);
++     for (let i = 0; i < n; i++) if (!starred(i) && matches(i, q)) drawTask(i);
++     if (q.length > 0 && shown < n) label((n - shown).toString() + " hidden by the filter");
+      if (done > 0) button("clear", "Clear done");
+    end();
+  ...
+      const k = "tasks." + id.substr(2);
+      setNum(k + ".star", getNum(k + ".star") > 0 ? 0.0 : 1.0);
++   } else if (id.startsWith("d:")) {
++     // delete one task: shift the ones after it down by one
++     const n = <i32>getNum("tasks.n");
++     const at = I32.parseInt(id.substr(2));
++     if (at < 0 || at >= n) return;
++     for (let i = at; i < n - 1; i++) move(i + 1, i);
++     setNum("tasks.n", n - 1);
+    } else if (id == "clear") {
+      // keep the undone tasks, moving text and star together
+  ...
+      let w = 0;
+      for (let i = 0; i < n; i++) {
+-       if (getNum(key(i) + ".done") == 0) {
+-         const t = getStr(key(i) + ".text");
+-         const s = getNum(key(i) + ".star");
+-         setStr(key(w) + ".text", t);
+-         setNum(key(w) + ".done", 0);
+-         setNum(key(w) + ".star", s);
+-         w++;
+-       }
++       if (getNum(key(i) + ".done") == 0) { if (w != i) move(i, w); w++; }
+      }
+      setNum("tasks.n", w);
+  ...
+
+--- preview (sample data) ---
+== Tasks ==
+1 of 3 done · 1 starred
+<Filter tasks…>
+  <Add a task…>
+  [ Add ]
+  [ ★ ]
+  [x] sample 2
+  [ × ]
+  [ ☆ ]
+  [ ] sample 1
+  [ × ]
+  [ ☆ ]
+  [ ] sample 3
+  [ × ]
+[ Clear done ]
+  Progress (C layer)
+  33%
+███░░░░░░░ 33%
+  [ Where am I? ]
+  [ Buzz ]
+
+approve? [y] ship  [n] discard  [r <change>] revise: LIVE v1794704428350 after 1 attempt(s): host swapped in 4.1 ms
+  time: total 37207 ms = model 17876 + compile 481 + check 137 + your approval 18704 + stream 6
+
+ai> 
+· attempt 1/4: asking handoff (replies read from .ai-live/handoff)…
+  waiting for the model: request in .ai-live/handoff/004.request.md, reply goes in .ai-live/handoff/004.reply.md
+  ✓ compiled (22160 bytes)
+  ✓ shadow check passed (state built by using the live app: 11 keys; every button clicked)
+
+Adds a progress bar under the heading showing the share of tasks that are done (0 when there are none).
+
+--- diff ---
+- // "Tasks" main layer: starred tasks first, a filter box, and delete on each task.
+- import { col, row, heading, label, button, input, toggle, end,
++ // "Tasks" main layer: starred tasks first, a filter box, delete on each task, and a progress bar.
++ import { col, row, heading, label, button, input, toggle, el, attr, end,
+           getNum, setNum, getStr, setStr, eventId, cap } from "./llp";
+  
+  ...
+  }
+  
++ function progress(pct: i32): void { el("progress"); attr("value", pct.toString()); end(); }
++ 
+  export function llp_view(): void {
+    const n = <i32>getNum("tasks.n");
+  ...
+      heading("Tasks");
+      label(done.toString() + " of " + n.toString() + " done · " + stars.toString() + " starred");
++     progress(n == 0 ? 0 : done * 100 / n);
+      input("filter", "Filter tasks…");
+      row();
+  ...
+
+--- preview (sample data) ---
+== Tasks ==
+0 of 1 done · 0 starred
+░░░░░░░░░░ 0%
+<Filter tasks…>
+  <Add a task…>
+  [ Add ]
+  [ ☆ ]
+  [ ] sample 3
+  [ × ]
+  Progress (C layer)
+  0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]
+  [ Buzz ]
+
+approve? [y] ship  [n] discard  [r <change>] revise:   ✗ revise: put the progress bar at the bottom, just above Clear done
+
+· attempt 2/4: asking handoff (replies read from .ai-live/handoff)…
+  waiting for the model: request in .ai-live/handoff/005.request.md, reply goes in .ai-live/handoff/005.reply.md
+  ✓ compiled (22160 bytes)
+  ✓ shadow check passed (state built by using the live app: 11 keys; every button clicked)
+
+Moves the progress bar to the bottom of the list, just above Clear done.
+
+--- diff ---
+- // "Tasks" main layer: starred tasks first, a filter box, and delete on each task.
+- import { col, row, heading, label, button, input, toggle, end,
++ // "Tasks" main layer: starred tasks first, a filter box, delete on each task, and a progress bar.
++ import { col, row, heading, label, button, input, toggle, el, attr, end,
+           getNum, setNum, getStr, setStr, eventId, cap } from "./llp";
+  
+  ...
+  }
+  
++ function progress(pct: i32): void { el("progress"); attr("value", pct.toString()); end(); }
++ 
+  export function llp_view(): void {
+    const n = <i32>getNum("tasks.n");
+  ...
+      for (let i = 0; i < n; i++) if (!starred(i) && matches(i, q)) drawTask(i);
+      if (q.length > 0 && shown < n) label((n - shown).toString() + " hidden by the filter");
++     progress(n == 0 ? 0 : done * 100 / n);
+      if (done > 0) button("clear", "Clear done");
+    end();
+  ...
+
+--- preview (sample data) ---
+== Tasks ==
+0 of 1 done · 0 starred
+<Filter tasks…>
+  <Add a task…>
+  [ Add ]
+  [ ☆ ]
+  [ ] sample 3
+  [ × ]
+░░░░░░░░░░ 0%
+  Progress (C layer)
+  0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]
+  [ Buzz ]
+
+approve? [y] ship  [n] discard  [r <change>] revise: LIVE v1794704428351 after 2 attempt(s): host swapped in 5.7 ms
+  time: total 19186 ms = model 3214 + compile 1133 + check 239 + your approval 14587 + stream 8
+
+ai> 
