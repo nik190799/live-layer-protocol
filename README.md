@@ -27,6 +27,9 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/hosts.mjs`, `bench/hosts.mjs` | 30 checks of server and client hosts over real WebSockets; scale measurements (`docs/HOSTS.md`) |
 | `case-studies/`, `docs/CASE-STUDIES.md` | CrowdStrike 2024, Knight 2012, Cloudflare 2019, Fastly 2021 and a hotfix replayed the old way and through LLP; `npm run case-studies` (17 checks) |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
+| `impl/go/` | A second, independent Live Host in Go, written from the spec (client host and fleet agent) |
+| `conformance/`, `docs/CONFORMANCE.md` | 158 language-neutral conformance vectors both hosts pass; what the second implementation found in the spec |
+| `test/interop-go.mjs` | 14 checks: the JS publisher and fleet controller drive Go hosts (and a mixed Go + JS fleet) over real sockets |
 | `service/`, `install/`, `Install-LiveLayer.cmd` | Per-device service, CLI and installers |
 | `web/` | Browser Live Host page (`build.py` inlines the core and layers into `index.html`) |
 
@@ -180,6 +183,20 @@ connectServer(host, "ws://server:7800", { app: "demo.shared", token: auth.issue(
 ```
 
 Tests: `npm run test:hosts` (30 checks). What each open question in the spec turned out to be, with numbers: `docs/HOSTS.md`.
+
+## Second implementation and conformance
+
+`impl/go` is an independent Live Host in Go (wazero for WebAssembly), written from `SPEC.md` without porting the JavaScript. It verifies and swaps layers, migrates, reverts, enforces the sandbox limits, and joins fleets. `conformance/vectors/` holds 158 checks in plain JSON that both hosts pass.
+
+```
+npm run test:conformance        # vectors against the JS host (also part of npm test)
+npm run test:go                 # vectors against the Go host + live interop (needs Go 1.24+)
+cd impl/go && go build -o llp-host ./cmd/llp-host
+./llp-host --key keys/publisher.pub.json ws://localhost:7700            # follow a publisher
+./llp-host --fleet keys/fleet/keyring.pinned.json --id h1 --channel stable ws://localhost:7720
+```
+
+What the second implementation found in the spec, and what isn't covered yet (the server role), is in `docs/CONFORMANCE.md`.
 
 ## Status
 

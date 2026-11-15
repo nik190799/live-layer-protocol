@@ -1,6 +1,6 @@
 # Live Layer Protocol (LLP) — v0 draft
 
-Status: working draft, reference implementation in `host/llp-core.js`. Every rule below is exercised by `test/run.mjs` (section 6.1 by `test/sandbox.mjs`, section 10 by `test/hosts.mjs`, section 12 by `test/fleet.mjs`).
+Status: working draft, reference implementation in `host/llp-core.js`. Every rule below is exercised by `test/run.mjs` (section 6.1 by `test/sandbox.mjs`, section 10 by `test/hosts.mjs`, section 12 by `test/fleet.mjs`). A second, independent host in Go (`impl/go`) and a shared conformance suite (`conformance/`) cover sections 3-9 and 12; see section 13 and `docs/CONFORMANCE.md`.
 
 ## 1. Goal
 
@@ -38,7 +38,13 @@ Ship code into a **running** application as a stream of small, signed, content-a
 }
 ```
 
-Signature: ECDSA P-256 / SHA-256 over the **canonical JSON** (sorted keys, no whitespace), base64-encoded, sent alongside the manifest. Hosts hold a list of trusted publisher public keys (JWK).
+Signature: ECDSA P-256 / SHA-256 over the **canonical JSON** of the manifest, sent alongside it. Hosts hold a list of trusted publisher public keys (JWK).
+
+- **Canonical JSON** is RFC 8785 (JCS): object keys sorted by UTF-16 code units, no whitespace, strings escaped and numbers written exactly as ECMAScript `JSON.stringify` does (so `1.0` is `1`, `1e21` is `1e+21`, and only `"`, `\` and control characters are escaped). A member whose value is absent is left out. Documents must be I-JSON (RFC 7493): a string holding a lone UTF-16 surrogate has no canonical form, so a host refuses it. Duplicate keys: the last one wins.
+- **Signature encoding:** the 64-byte IEEE P1363 form `r‖s` (32 bytes each, what WebCrypto emits), in standard base64. Writers pad; readers accept a missing pad. DER-encoded signatures are refused. There is no low-S rule.
+- **Keys:** a JWK with `kty: "EC"`, `crv: "P-256"` and base64url `x` and `y` of 32 bytes each; other members are ignored. A point that isn't on the curve verifies nothing.
+
+Each value in `layers` must be a lowercase hex SHA-256 (64 characters). `order`, when present, must be a list of slot names from `layers`. Otherwise the manifest is `malformed`.
 
 `version` must be a positive safe integer (`Number.isSafeInteger`, at most 2^53 − 1). An optional `epoch` (a non-negative safe integer, default 0) orders releases ahead of `version`: manifests are compared as the pair `(epoch, version)`. A host accepts an epoch only up to the one it trusts: a fleet host's limit is the number of the keyring it holds (section 12.4), and a plain host's limit is 0. The epoch exists so that a key rotation can outrank any version a leaked key signed.
 
@@ -61,7 +67,22 @@ Transport-agnostic JSON messages. Reference transports: WebSocket (Node host), B
 | publisher → host | `{"t":"manifest","manifest":{…},"sig":"…"}` |
 | host → publisher | `{"t":"want","hashes":[…]}` |
 | publisher → host | `{"t":"blob","hash","data":"<base64>"}` |
-| host → publisher | `{"t":"ack","version","ms"}` or `{"t":"nack","version","reason"}` |
+| host → publisher | `{"t":"ack","version","ms","running"?}` or `{"t":"nack","version","code","reason"}` |
+
+`reason` is for people. `code` is for programs and names the step that refused the manifest:
+
+| Code | Meaning (section 6 step) |
+|---|---|
+| `malformed` | not a manifest, a bad layer hash or `order`, an unknown placement, or bad `keys`, `caps`, `private` or `overlap` |
+| `untrusted` | no trusted keys, a signature no trusted key made, or no pinned app (step 1) |
+| `wrong_app` | a manifest for another app (step 1) |
+| `protocol` | an `llp` newer than the host, or an LLP 1 manifest breaking its strict rules (section 4) |
+| `bad_version` | `version` or `epoch` out of range, beyond the trusted epoch, or too far ahead (step 2) |
+| `stale` | not newer than the running `(epoch, version)` (step 2) |
+| `blob` | a blob missing, too big, or not matching its hash (step 3) |
+| `layer_failed` | a layer failed to load, migrate or render, or broke a sandbox limit (steps 5-6) |
+
+Fleet status reports (12.3) use the same codes, plus `channel` and `freshness`.
 
 ## 6. Swap algorithm (host)
 
@@ -69,11 +90,13 @@ Transport-agnostic JSON messages. Reference transports: WebSocket (Node host), B
 2. Version rules (anti-rollback/replay and anti-freeze): reject unless `version` is a positive safe integer and `epoch` (default 0) is a non-negative safe integer no higher than the host's trusted epoch; reject if `(epoch, version) ≤ (running epoch, running version)`; reject if `version` is more than one year of milliseconds (`MAX_VERSION_AHEAD_MS`) ahead of the larger of the running version (same epoch) and the host's clock. So small counters and millisecond timestamps both work, and one enormous version can't leave no higher version to publish. (A device whose clock is more than a year slow refuses timestamp versions; `maxVersionAheadMs` can be raised for such hosts.)
 3. Fetch missing blobs; reject any whose SHA-256 ≠ declared hash.
 4. Open a copy-on-write shadow of state (writes stay in the shadow; cost is proportional to keys written, not store size).
-5. For each changed slot placed on this host (10.1): instantiate → if `llp_schema()` differs from the stored schema, call `llp_migrate(from)` → call `llp_view()` and require a balanced UI tree (a headless server layer may omit `llp_view`).
+5. For each changed slot placed on this host (10.1), in sorted slot-name order (the order the signature covers; the order keys arrive in isn't signed): instantiate → if `llp_schema()` differs from the stored schema, call `llp_migrate(from)` → call `llp_view()` and require a balanced UI tree (a headless server layer may omit `llp_view`).
 6. Any failure → reject the whole manifest; the running version is untouched.
-7. Commit: swap slot pointers, keep previous versions for revert, replay the shadow's writes onto state, render.
+7. Commit: swap slot pointers, keep previous versions for revert, replay the shadow's writes onto state, render. Slots render in `order`; without `order`, in sorted slot-name order. A blob that passed its hash check may be kept even if the manifest is refused at a later step (it is content-addressed).
 
 ### 6.1 Sandbox limits
+
+The rule is the table below: each limit, and what happens when a layer breaks it. How a host enforces them is up to the host. The Go host (`impl/go`) runs each layer in its own wazero instance, stops a call at a context deadline and caps linear memory in the engine; the rest of this paragraph describes how the reference host does it.
 
 Every layer instance lives in its own worker (a Web Worker in browsers, `worker_threads` in Node). The host keeps one worker booted in advance so a swap doesn't wait for one to start. Each worker keeps a replica of host state. The host keeps a change log, and each call carries only the keys that changed since that worker's last call; a worker that is new or fell more than 65,536 changes behind gets one full copy. The worker returns the UI tree, requested effects and the keys it wrote. The host applies those writes only if the call finished cleanly. (Sending the whole state with every call cost 157 ms per event at 100k keys and broke the 100 ms limit at 1M keys; with the log an event costs 0.5 ms at any size.)
 
@@ -105,7 +128,7 @@ Entries are key prefixes. Once a manifest declares `keys`, every slot in it need
 
 ## 7. Layer ABI (v0)
 
-Imports, module `llp` (strings are UTF-8 `(ptr, len)` in the layer's memory; reads into a layer-provided buffer return the full length):
+Imports, module `llp` (strings are UTF-8 `(ptr, len)` in the layer's memory; reads into a layer-provided buffer `(buf, cap)` copy at most `cap` bytes and return the full length in bytes, so a layer can tell it was cut short). A string or buffer outside the layer's memory traps. Layers should pass valid UTF-8; a host replaces invalid sequences with U+FFFD. State values are numbers (f64) or strings; `kv_get_n` on a string or a missing key returns the default, and `kv_get_s` on a number returns it written as ECMAScript `Number::toString` does (`1`, `0.5`, `1e+21`).
 
 | Import | Signature | Purpose |
 |---|---|---|
@@ -120,6 +143,15 @@ Imports, module `llp` (strings are UTF-8 `(ptr, len)` in the layer's memory; rea
 | `log` | `(text)` | diagnostics |
 | `now` | `() → f64` | wall clock, ms |
 
+Module `env` (imported by AssemblyScript and some C toolchains; a host must provide both):
+
+| Import | Signature | Purpose |
+|---|---|---|
+| `abort` | `(msg, file, line, col)` (four i32) | the layer gave up: treated as a trap |
+| `seed` | `() → f64` | a random seed |
+
+Every call has a state view: a slot with declared keys (6.2) reads a missing value for any key outside its `own` and `read` prefixes. Writes are buffered and a call reads its own writes; they reach host state only if the call returns cleanly.
+
 Exports:
 
 | Export | Required | Purpose |
@@ -132,7 +164,9 @@ Exports:
 
 ## 8. UI vocabulary (v0)
 
-`col`, `row`, `card`, `heading`, `label`, `big`, `button(id, style)`, `input(bind, placeholder, submit)`, `toggle(id, on)`, `progress(value)`, `text`. Inputs with `bind` write directly into host state. The host renders natively for its platform (DOM in browsers, text in the headless host) and diffs to preserve focus, scroll, and input contents across swaps.
+`col`, `row`, `card`, `heading`, `label`, `big`, `button(id, style)`, `input(bind, placeholder, submit)`, `toggle(id, on)`, `progress(value)`, `text`. Inputs with `bind` write directly into host state.
+
+**Tree form.** `ui_begin` adds an element `{"k": kind, "a": {attrs}, "c": [children]}` to the open element and opens it; `ui_attr` sets an attribute on the open element; `ui_text` adds `{"k": "text", "t": text}`; `ui_end` closes it. A call's output is the single top-level element if there is exactly one, otherwise a `{"k": "root", "a": {}, "c": [...]}` holding them. Text and elements both count toward the UI node limit (6.1). The host renders natively for its platform (DOM in browsers, text in the headless host) and diffs to preserve focus, scroll, and input contents across swaps.
 
 The vocabulary is deliberately small in v0. The long-term direction is a typed component catalog plus a raw canvas/GPU surface for anything custom.
 
@@ -230,7 +264,7 @@ Two devices pair by comparing a fingerprint (the first 80 bits of SHA-256 over t
 ## 11. Known gaps in v0 (deliberately deferred)
 
 - Time limits are wall-clock, not CPU time, so a heavily loaded device can cut off a slow but honest layer. Limits are per host, not per layer or per manifest.
-- State quotas are host-wide (`limits.maxKeys`, default 2,000,000 keys; `limits.maxValueKb`, default 256 KB per value; keys up to 1,024 characters). A call that would pass them fails like a trap. There are no per-slot quotas in the manifest.
+- State quotas are host-wide (`limits.maxKeys`, default 2,000,000 keys; `limits.maxValueKb`, default 256 KB per value; keys up to 1,024 characters). "Characters" and "KB" here count UTF-16 code units, as the reference host does. A call that would pass them fails like a trap. There are no per-slot quotas in the manifest.
 - A killed layer's `log` output for that call is lost.
 - Memory blowup is caught by the engine's memory cap, so the error says `unreachable` (plus the memory reading) rather than naming an out-of-memory condition.
 - Layers on the same host can't call each other; they communicate only through shared state. Across hosts, a client layer calls a server layer with `remote` (10.2).
@@ -262,7 +296,7 @@ A manifest may carry `"channel": "<name>"`. A fleet host belongs to exactly one 
   "rollout": { "percent": 25, "seed": "demo.tasks/stable" } }
 ```
 
-Each host computes its bucket, `uint32(sha256(seed + "\n" + hostId)[0..4]) mod 10000`, and applies the manifest only if `bucket < percent × 100`. Hosts outside the share report `skipped` and keep running the previous release. Because the bucket is fixed per host and seed, widening a share only adds hosts. To widen, the controller re-signs the same version with a higher percent. Hosts already on that version have nothing to do; newly included hosts apply it. The default seed keeps the same canary hosts from release to release; set a per-release seed to rotate them. Narrowing a share can't take a release back from hosts that already run it: that is a rollback (10.3.4).
+Each host computes its bucket, `uint32(sha256(seed + "\n" + hostId)[0..4]) mod 10000` (the first four bytes, big-endian; the strings as UTF-8), and applies the manifest only if `bucket < floor(percent × 100 + 0.5)`. Hosts outside the share report `skipped` and keep running the previous release. Because the bucket is fixed per host and seed, widening a share only adds hosts. To widen, the controller re-signs the same version with a higher percent. Hosts already on that version have nothing to do; newly included hosts apply it. The default seed keeps the same canary hosts from release to release; set a per-release seed to rotate them. Narrowing a share can't take a release back from hosts that already run it: that is a rollback (10.3.4).
 
 ### 12.3 Convergence
 
@@ -313,3 +347,7 @@ Signatures go alongside the document as `[{ "kid", "sig" }]`, where `kid` is the
 The core's `trustedKeys` becomes the keyring's release keys; the agent also checks the signature itself before evaluating channel or share. The agent pins the host to the keyring's `app` and sets the host's trusted epoch to the keyring number.
 
 - **Epochs:** the controller stamps every manifest with `epoch` = its current keyring number. On a release key rotation it re-signs each channel's current manifest with the new key and the new epoch. A host that a leaked key pushed to a high version therefore moves back to the real release as soon as it accepts the new keyring, and the leaked key's release is refused from then on (its key is no longer trusted).
+
+## 13. Conformance
+
+An implementation conforms when it passes the vectors in `conformance/vectors/` (canonical JSON, signatures, content addresses, rollout buckets, every manifest and version rule, swaps, migrations, reverts, sandbox limits, declared keys and capabilities, keyring chains and fleet decisions). The files are language-neutral JSON; `conformance/run-js.mjs` runs them against the reference host and `impl/go/cmd/llp-conformance` against the Go host. Both pass all 158 checks, and `test/interop-go.mjs` runs the Go host against the reference publisher and fleet controller over real sockets. What writing the second host found in this spec, and what is not covered yet (the server role of section 10 has one implementation so far), is in `docs/CONFORMANCE.md`.

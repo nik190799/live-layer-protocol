@@ -42,13 +42,13 @@ const host = new LiveHost({
 const ws = new WebSocket(url);
 const pending = new Map();
 const send = (m) => ws.send(JSON.stringify(m));
-ws.onopen = () => send({ t: "hello", app: appName, version: host.version, have: [...host.blobs.keys()] });
+ws.onopen = () => send({ t: "hello", llp: 1, app: appName, version: host.version, have: [...host.blobs.keys()] });
 ws.onmessage = async (ev) => {
   const msg = JSON.parse(ev.data);
   if (msg.t === "blob") pending.get(msg.hash)?.(b64.dec(msg.data));
   if (msg.t === "manifest") {
     const r = await host.apply(msg.manifest, msg.sig, (h) => new Promise((res) => { pending.set(h, res); send({ t: "want", hashes: [h] }); }));
-    send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, reason: r.reason });
+    send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, code: r.code, reason: r.reason });
   }
 };
 ws.onclose = () => console.log("· stream closed");

@@ -171,10 +171,10 @@ export class FleetAgent {
     if (msg.t !== "manifest") return null;
     const m = msg.manifest;
     // Checked here, before anything else, so an unsigned message can't even produce a "skipped".
-    if (!(await this.trust.verifyManifest(m, msg.sig))) return this.reject(m, "signature not trusted");
-    if (m.app !== this.trust.app) return this.reject(m, "different app");
+    if (!(await this.trust.verifyManifest(m, msg.sig))) return this.reject(m, "signature not trusted", "untrusted");
+    if (m.app !== this.trust.app) return this.reject(m, "different app", "wrong_app");
     // The channel is inside the signed manifest, so a beta release can't be replayed onto stable.
-    if ((m.channel ?? null) !== (this.channel ?? null)) return this.reject(m, `manifest is for channel ${m.channel ?? "(none)"}, host is on ${this.channel ?? "(none)"}`);
+    if ((m.channel ?? null) !== (this.channel ?? null)) return this.reject(m, `manifest is for channel ${m.channel ?? "(none)"}, host is on ${this.channel ?? "(none)"}`, "channel");
     // Older than what's running: a late duplicate or a replay. Ignored, and it doesn't change the
     // host's reported state (the core would refuse it anyway, SPEC section 6 step 2).
     // Versions are ordered as (epoch, version): a new keyring epoch restarts the order (RT-02).
@@ -183,9 +183,9 @@ export class FleetAgent {
     if (cmp > 0) {
       // Freshness (SEC-01): never install a release older than the newest one a valid note vouched for.
       if (this.fresh && ((m.epoch ?? 0) < this.fresh.epoch || ((m.epoch ?? 0) === this.fresh.epoch && m.version < this.fresh.version)))
-        return this.reject(m, `v${m.version} is older than v${this.fresh.version}, the latest release the controller vouched for`);
+        return this.reject(m, `v${m.version} is older than v${this.fresh.version}, the latest release the controller vouched for`, "freshness");
       const why = this.freshness?.mode === "refuse" ? this.staleReason() : null;
-      if (why && (!this.fresh || this.fresh.expires <= Date.now())) return this.reject(m, `no valid freshness note (${why}); refusing to install`);
+      if (why && (!this.fresh || this.fresh.expires <= Date.now())) return this.reject(m, `no valid freshness note (${why}); refusing to install`, "freshness");
     }
     this.target = m.version;
     this.percent = m.rollout?.percent ?? 100;
@@ -194,9 +194,9 @@ export class FleetAgent {
     if (!(await inRollout(m, this.id))) return this.done("skipped", `not in the ${m.rollout.percent}% share`);
     let r;
     try { r = await this.host.apply(m, msg.sig, fetchBlob); } catch (e) { r = { ok: false, reason: e.message }; }
-    return r.ok ? this.done("live", `${r.ms} ms`, { ms: r.ms }) : this.done("rejected", r.reason);
+    return r.ok ? this.done("live", `${r.ms} ms`, { ms: r.ms }) : this.done("rejected", r.reason, { code: r.code });
   }
-  reject(m, reason) { return this.done("rejected", reason, { target: m?.version }); }
+  reject(m, reason, code) { return this.done("rejected", reason, { target: m?.version, code }); }
 
   async onFresh({ doc, sig }) {
     if (!doc || doc.kind !== "llp-freshness" || doc.app !== this.trust.app || (doc.channel ?? null) !== (this.channel ?? null)) return { state: "fresh-rejected", reason: "note is for another app or channel" };
