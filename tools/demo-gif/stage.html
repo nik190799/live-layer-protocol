@@ -1,0 +1,125 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>LLP demo stage</title>
+<!-- The recording stage for tools/demo-gif/record.mjs. The phone on the right is a real Live Host
+     (host/llp-core.js, layers in Web Workers) connected to the real AI publisher over WebSocket.
+     The terminal on the left shows lines the publisher printed; the recorder copies them in. -->
+<style>
+:root { --bg: #0b0f15; --panel: #121822; --line: #243041; --ink: #e8edf5; --muted: #8b97aa;
+  --live: #3ddc97; --bad: #ff5d73; --warn: #ffb347; --accent: #7d8dff;
+  --app-bg: #ffffff; --app-ink: #18202b; --app-sub: #657085; --app-line: #e3e7ee; --app-press: #eef1f6; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--ink); font: 16px/1.4 Inter, system-ui, sans-serif; }
+.cap { position: absolute; left: 40px; right: 40px; top: 22px; height: 112px; }
+.cap .step { font: 600 15px/1 "JetBrains Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.cap h1 { margin: 10px 0 0; font: 800 40px/1.08 "Inter Display", Inter, sans-serif; letter-spacing: -0.02em; }
+.cap h1 em { font-style: normal; color: var(--live); } .cap h1 s { text-decoration: none; color: var(--bad); }
+.cap p { margin: 8px 0 0; font-size: 20px; color: var(--muted); }
+.term { position: absolute; left: 40px; top: 150px; width: 690px; height: 545px; background: #06080c; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.term .bar { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 13px "JetBrains Mono", monospace; color: var(--muted); }
+.term .bar i { width: 11px; height: 11px; border-radius: 50%; background: #2b3647; display: inline-block; }
+.term .bar span { margin-left: 8px; }
+.lines { position: absolute; left: 0; right: 0; top: 36px; bottom: 0; padding: 14px 18px; font: 17px/1.5 "JetBrains Mono", monospace; font-variant-ligatures: none; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.lines div { white-space: pre-wrap; word-break: break-word; }
+.lines .ok { color: var(--live); } .lines .bad { color: var(--bad); } .lines .you { color: #fff; font-weight: 600; } .lines .dim { color: var(--muted); } .lines .live { color: var(--live); font-weight: 600; }
+.cursor::after { content: "▍"; color: var(--accent); }
+.phone { position: absolute; right: 40px; top: 150px; width: 470px; height: 545px; background: var(--panel); border: 1px solid var(--line); border-radius: 26px; padding: 14px; }
+.pbar { display: flex; justify-content: space-between; align-items: center; padding: 0 6px 10px; font: 600 14px "JetBrains Mono", monospace; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); }
+.chip .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--live); }
+.chip.bad .dot { background: var(--bad); }
+.screen { background: var(--app-bg); color: var(--app-ink); border-radius: 16px; padding: 18px; height: 488px; overflow: hidden; transition: box-shadow .25s; position: relative; }
+.screen.swap { box-shadow: 0 0 0 4px var(--live); }
+.screen.held { box-shadow: 0 0 0 4px var(--warn); }
+.slot + .slot { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--app-line); }
+.u-col { display: flex; flex-direction: column; gap: 7px; }
+.u-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.u-row > .u-input { flex: 1 1 140px; } .u-row > .u-toggle { flex: 1 1 auto; }
+.u-heading { font: 800 25px/1.1 "Inter Display", Inter, sans-serif; margin: 0; }
+.u-label { color: var(--app-sub); font-size: 15px; }
+.u-big { font: 800 24px/1 "Inter Display", Inter, sans-serif; }
+.u-button { font: 600 15px/1 Inter, sans-serif; padding: 8px 13px; border-radius: 10px; border: 1px solid var(--app-line); background: var(--app-press); color: var(--app-ink); }
+.u-button[data-style="primary"] { background: #2c46e8; border-color: #2c46e8; color: #fff; }
+.u-input { font: 16px Inter, sans-serif; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--app-line); min-width: 0; }
+.u-toggle { display: flex; align-items: center; gap: 10px; padding: 5px 2px; border: 0; border-bottom: 1px solid var(--app-line); background: none; font: 17px Inter, sans-serif; color: var(--app-ink); text-align: left; width: 100%; }
+.u-toggle .box { width: 21px; height: 21px; border-radius: 6px; border: 2px solid var(--app-sub); flex: none; display: grid; place-items: center; }
+.u-toggle[aria-pressed="true"] .box { background: #12855a; border-color: #12855a; }
+.u-toggle[aria-pressed="true"] .box::after { content: ""; width: 9px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+.u-toggle[aria-pressed="true"] .t { color: var(--app-sub); text-decoration: line-through; }
+.u-progress { height: 10px; border-radius: 99px; background: var(--app-press); overflow: hidden; }
+.u-progress > i { display: block; height: 100%; background: #12855a; transition: width .3s; }
+.end { position: absolute; inset: 0; background: var(--bg); display: none; flex-direction: column; justify-content: center; padding: 0 90px; }
+.end.on { display: flex; }
+.end h1 { font: 800 64px/1.05 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; margin: 0; }
+.end h1 em { font-style: normal; color: var(--live); }
+.end ul { margin: 34px 0 0; padding: 0; list-style: none; font: 24px/1.7 Inter, sans-serif; color: var(--ink); }
+.end li b { font-family: "JetBrains Mono", monospace; color: var(--live); }
+.end .repo { margin-top: 34px; font: 600 22px "JetBrains Mono", monospace; color: var(--muted); }
+</style>
+<div class="cap"><div class="step" id="step"></div><h1 id="title"></h1><p id="sub"></p></div>
+<div class="term"><div class="bar"><i></i><i></i><i></i><span>AI publisher · tools/ai-publish.mjs</span></div><div class="lines" id="lines"></div></div>
+<div class="phone"><div class="pbar"><span>Tasks app</span><span class="chip" id="chip"><span class="dot"></span><span id="chip-t">connecting</span></span></div><div class="screen" id="screen"></div></div>
+<div class="end" id="end"></div>
+<script type="module">
+import { LiveHost, b64 } from "/host/llp-core.js";
+const $ = (id) => document.getElementById(id);
+const q = new URLSearchParams(location.search);
+const trusted = await (await fetch("/key")).json();
+
+function txt(n) { return (n.c || []).filter((c) => c.k === "text").map((c) => c.t).join(""); }
+function make(n, slot) {
+  const a = n.a || {}; let el;
+  switch (n.k) {
+    case "text": return document.createTextNode(n.t);
+    case "heading": el = document.createElement("h3"); el.className = "u-heading"; el.textContent = txt(n); return el;
+    case "label": el = document.createElement("div"); el.className = "u-label"; el.textContent = txt(n); return el;
+    case "big": el = document.createElement("div"); el.className = "u-big"; el.textContent = txt(n); return el;
+    case "button": el = document.createElement("button"); el.className = "u-button"; el.textContent = txt(n); el.dataset.id = a.id;
+      if (a.style) el.dataset.style = a.style; el.onclick = () => host.dispatch(slot, a.id); return el;
+    case "toggle": el = document.createElement("button"); el.className = "u-toggle"; el.dataset.id = a.id; el.setAttribute("aria-pressed", a.on === "1");
+      el.innerHTML = '<span class="box"></span><span class="t"></span>'; el.lastChild.textContent = txt(n); el.onclick = () => host.dispatch(slot, a.id); return el;
+    case "input": el = document.createElement("input"); el.className = "u-input"; el.id = `in-${a.bind}`; el.placeholder = a.placeholder || "";
+      el.value = host.kv.get(a.bind) ?? ""; el.oninput = () => host.setBound(a.bind, el.value);
+      el.onkeydown = (e) => { if (e.key === "Enter" && a.submit) host.dispatch(slot, a.submit); }; return el;
+    case "progress": el = document.createElement("div"); el.className = "u-progress"; el.innerHTML = "<i></i>"; el.firstChild.style.width = (+a.value || 0) + "%"; return el;
+    default: el = document.createElement("div"); el.className = "u-" + (["col", "row"].includes(n.k) ? n.k : "col");
+      for (const c of n.c || []) el.appendChild(make(c, slot)); return el;
+  }
+}
+function paint(slots) {
+  const f = document.activeElement, keep = f?.id?.startsWith("in-") ? f.id : null;
+  const frag = document.createDocumentFragment();
+  for (const s of slots) { const box = document.createElement("div"); box.className = "slot"; box.appendChild(s.error ? document.createTextNode(s.error) : make(s.tree, s.slot)); frag.appendChild(box); }
+  $("screen").replaceChildren(frag);
+  if (keep) $(keep)?.focus();
+}
+
+const events = [];
+let build = 0;
+const host = new LiveHost({ app: "demo.tasks", trustedKeys: [trusted], capabilities: { haptic: async () => "ok" },
+  onRender: paint, onLog: (e) => events.push({ kind: e.kind, msg: e.msg, at: performance.now() }) });
+const ws = new WebSocket(`ws://127.0.0.1:${q.get("port")}`);
+const pending = new Map();
+const send = (m) => ws.send(JSON.stringify(m));
+ws.onopen = () => send({ t: "hello", llp: 1, app: "demo.tasks", version: host.version, have: [...host.blobs.keys()] });
+ws.onmessage = async (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.t === "blob") pending.get(msg.hash)?.(b64.dec(msg.data));
+  if (msg.t === "manifest") {
+    const r = await host.apply(msg.manifest, msg.sig, (h) => new Promise((res) => { pending.set(h, res); send({ t: "want", hashes: [h] }); }));
+    send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, code: r.code, reason: r.reason });
+    if (r.ok) { build++; window.stage.swaps.push({ build, ms: r.ms, tasks: host.kv.get("tasks.n") ?? 0 }); $("chip-t").textContent = `build ${build}` + (build > 1 ? ` · swap ${r.ms < 10 ? r.ms.toFixed(1) : Math.round(r.ms)} ms` : " · running"); flash("swap"); }
+  }
+};
+function flash(cls) { const s = $("screen"); s.classList.add(cls); setTimeout(() => s.classList.remove(cls), 1400); }
+
+window.stage = {
+  swaps: [], events, host,
+  caption(step, title, sub = "") { $("step").textContent = step; $("title").innerHTML = title; $("sub").textContent = sub; },
+  line(text, cls = "") { const d = document.createElement("div"); d.textContent = text; if (cls) d.className = cls; $("lines").appendChild(d); while ($("lines").children.length > 40) $("lines").firstChild.remove(); return d; },
+  edit(d, text) { d.textContent = text; }, cursor(d, on) { d.classList.toggle("cursor", on); },
+  held() { flash("held"); },
+  end(html) { $("end").innerHTML = html; $("end").classList.add("on"); },
+  state() { return { n: host.kv.get("tasks.n") ?? 0, build, main: host.slots.get("main")?.hash?.slice(0, 8) }; },
+};
+</script>
