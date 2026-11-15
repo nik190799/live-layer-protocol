@@ -1,5 +1,5 @@
 // Headless Live Host that joins a fleet: a channel, a stable host id, and a pinned keyring.
-// Usage: node host/fleet-host.mjs <ws-url> <keyring.pinned.json> --id <host-id> --channel <name> [--count N] [--trust-dir <dir>]
+// Usage: node host/fleet-host.mjs <ws-url> <keyring.pinned.json> --id <host-id> --channel <name> [--count N] [--trust-dir <dir>] [--freshness warn|refuse]
 // --trust-dir keeps each host's latest accepted keyring on disk, so a restart can't fall back to a
 // revoked key (without it a restarted host trusts the pinned keyring again until it reconnects).
 // --count N runs N independent hosts in this process (ids <id>-0 .. <id>-N-1), for simulations.
@@ -15,6 +15,7 @@ const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? proces
 const baseId = arg("--id", "host"), channel = arg("--channel", "stable"), count = +arg("--count", 1);
 const pinned = JSON.parse(readFileSync(keyringFile, "utf8"));
 const trustDir = arg("--trust-dir", null);
+const freshMode = arg("--freshness", null); // warn | refuse (SEC-01): report, or also refuse installs, without a valid freshness note
 if (trustDir) mkdirSync(trustDir, { recursive: true });
 const trustFile = (id) => join(trustDir, `${id.replace(/[^\w.-]/g, "_")}.keyring.json`);
 const agents = [];
@@ -39,7 +40,7 @@ async function start(id) {
   let ws;
   const saved = trustDir && existsSync(trustFile(id)) ? JSON.parse(readFileSync(trustFile(id), "utf8")) : null;
   const trust = new TrustStore(saved && saved.app === pinned.app && saved.keyring > pinned.keyring ? saved : pinned);
-  const agent = new FleetAgent({ host, id, channel, trust, deviceKey: await deviceKeyFor(id), send: (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m)) });
+  const agent = new FleetAgent({ host, id, channel, trust, deviceKey: await deviceKeyFor(id), freshness: freshMode ? { mode: freshMode } : null, send: (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m)) });
   const prevSend = agent.send;
   agent.send = (m) => {
     if (m.t === "status") console.log(JSON.stringify({ ...m, at: Date.now() }));
@@ -54,6 +55,7 @@ async function start(id) {
     ws.onerror = () => {};
   };
   connect();
+  if (freshMode) setInterval(() => agent.checkFreshness(), 30_000).unref();
   agents.push(agent);
 }
 for (let i = 0; i < count; i++) await start(count === 1 ? baseId : `${baseId}-${i}`);

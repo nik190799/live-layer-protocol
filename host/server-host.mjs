@@ -160,7 +160,8 @@ export class ServerLiveHost extends LiveHost {
       for (const fx of r.effects) {
         const impl = this.capabilities[fx.name];
         let result;
-        if (!impl) result = "error: not granted";
+        if (!this.capAllowed(slot, fx.name)) { result = "error: not granted"; this.log("cap", `capability "${fx.name}" is not declared for ${slot} in this release; refused`, { slot }); }
+        else if (!impl) result = "error: not granted";
         else try { result = String(await impl(fx.arg, { slot, app: this.app, user })); } catch (e) { result = "error: " + e.message; }
         events.push({ id: `cap:${fx.name}`, value: result });
       }
@@ -175,9 +176,11 @@ export class ServerHost {
   // restart loses nothing (ST-02). Without it, state lives in memory only and a warning is logged.
   // fsync (default true): flush each commit to the disk before replying; false survives a process
   // crash but not a power loss.
-  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, idleMs = 120000, limits = {}, maxPending = 256, onLog = () => {}, dataDir = null, fsync = true, compactEvery = 1000, revertAfterUsers = 3, revertWindowMs = 60000 } = {}) {
+  // canRead(user, key, app) => boolean: optional extra read rule for shared/ keys (PR-01), applied
+  // on top of the manifest's private prefixes.
+  constructor({ trustedKeys, capabilities = {}, authenticate, windowMs = 30000, idleMs = 120000, limits = {}, maxPending = 256, onLog = () => {}, dataDir = null, fsync = true, compactEvery = 1000, revertAfterUsers = 3, revertWindowMs = 60000, canRead = null } = {}) {
     if (!authenticate) throw new Error("server host needs an authenticate(token, app) function");
-    Object.assign(this, { trustedKeys, capabilities, authenticate, windowMs, idleMs, limits, maxPending, onLog, revertAfterUsers, revertWindowMs });
+    Object.assign(this, { trustedKeys, capabilities, authenticate, windowMs, idleMs, limits, maxPending, onLog, revertAfterUsers, revertWindowMs, canRead });
     this.tenants = new Map();
     this.upstreams = [];
     this.disk = dataDir ? new DiskStore(dataDir, { fsync, compactEvery, idemKeep: IDEM_KEEP }) : null;
@@ -256,6 +259,11 @@ export class ServerHost {
     this.persist(t);                   // a migration's writes are on disk before the release is
     t.log?.setCurrent(manifest, sig);
     this.flush(t);       // shared/ keys written by a migration reach clients before the new code
+    // New read rules: every client's mirror is rebuilt, so keys it may no longer read are dropped.
+    if (JSON.stringify(manifest.private ?? []) !== JSON.stringify(t.privateSent ?? [])) {
+      t.privateSent = manifest.private ?? [];
+      for (const c of t.clients) send(c.ws, { t: "shared", full: true, set: [...t.host.kv].filter(([k]) => watched(c, k)) });
+    }
     for (const c of t.clients) send(c.ws, { t: "manifest", manifest, sig });
     return r;
   }
@@ -316,7 +324,7 @@ export class ServerHost {
       // watch: the shared/ prefixes this client mirrors (default: all of shared/). A big store
       // can't be mirrored on every phone, so clients can narrow it.
       const watch = Array.isArray(m.watch) && m.watch.length ? m.watch.filter((p) => typeof p === "string" && p.startsWith("shared/")).slice(0, 64) : ["shared/"];
-      Object.assign(c, { user, app: m.app, version: +m.version || 0, watch });
+      Object.assign(c, { user, app: m.app, version: +m.version || 0, watch, canRead: readerFor(t, user, this.canRead) });
       t.clients.add(c);
       const set = [...t.host.kv].filter(([k]) => watched(c, k));
       send(c.ws, { t: "shared", full: true, set });
@@ -376,7 +384,15 @@ export class ServerHost {
   }
 }
 
-const watched = (c, k) => c.watch.some((p) => k.startsWith(p));
+const watched = (c, k) => c.watch.some((p) => k.startsWith(p)) && c.canRead(k);
+// Who may read a shared/ key (PR-01): keys under a private prefix belong to the user named by the
+// next path segment; the operator's canRead hook can narrow access further.
+function readerFor(t, user, hook) {
+  return (k) => {
+    for (const p of t.host.manifest?.private ?? []) if (k.startsWith(p) && k.slice(p.length).split("/")[0] !== user) return false;
+    return hook ? hook(user, k, t.app) === true : true;
+  };
+}
 function send(ws, m) { if (ws.readyState === 1) ws.send(JSON.stringify(m)); }
 function reply(id, r) {
   if (r && r.code) return { t: "reply", id, ok: false, error: { code: r.code, message: r.message, ...(r.serverVersion ? { serverVersion: r.serverVersion } : {}) } };

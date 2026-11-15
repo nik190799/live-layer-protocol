@@ -119,7 +119,10 @@ async function change(prompt) {
     if (!chk.ok) { retry("check", chk.error); continue; }
     console.log(`  ✓ shadow check passed (state built by using the live app: ${chk.stateKeys} keys; every button clicked)`);
 
-    console.log(`\n${summaryOf(reply) || "(no summary)"}\n\n--- diff ---\n${diff(source, code)}\n\n--- preview (sample data) ---`);
+    // Facts the tool measured come first; the model's own summary is labelled as its claim (AI-02/AI-03).
+    const newCaps = (chk.caps?.after ?? []).filter((c) => !(chk.caps?.before ?? []).includes(c));
+    console.log(`\n--- measured by the shadow check ---\ncapabilities requested: ${(chk.caps?.after ?? []).join(", ") || "none"}${newCaps.length ? `\n!! NEW capabilities this version asks for: ${newCaps.join(", ")}` : ""}`);
+    console.log(`\nthe model says: ${summaryOf(reply) || "(no summary)"}\n\n--- diff ---\n${diff(source, code)}\n\n--- preview (sample data) ---`);
     for (const s of chk.preview) console.log(draw(s.tree).join("\n"));
     t = performance.now();
     const answer = await ask("\napprove? [y] ship  [n] discard  [r <change>] revise: ");
