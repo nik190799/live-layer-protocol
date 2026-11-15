@@ -73,7 +73,7 @@ export async function makeFleet({ app, n, limits = {}, ids }) {
       node.conn = fleet.attach((m) => { const c = JSON.parse(JSON.stringify(m)); if (link.open) later("down", () => agent.receive(c)); });
       agent.send = (m) => { const c = JSON.parse(JSON.stringify(m)); if (link.open) later("up", () => node.conn.message(c)); };
       node.online = true;
-      agent.hello();
+      agent.connected(); // the controller's challenge triggers the signed hello
     };
     // Control channel down (the host keeps serving traffic; it just can't hear the controller).
     node.partition = () => { node.link.open = false; node.online = false; node.conn.close(); };

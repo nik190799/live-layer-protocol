@@ -61,7 +61,7 @@ function addHost(id, channel) {
     node.conn = fleet.attach((m) => { const c = JSON.parse(JSON.stringify(m)); if (link.open) later("down", () => agent.receive(c)); });
     agent.send = (m) => { const c = JSON.parse(JSON.stringify(m)); if (link.open) later("up", () => node.conn.message(c)); };
     node.up = true;
-    agent.hello();
+    agent.connected(); // the controller's challenge, already on its way, triggers the signed hello
   };
   node.disconnect = () => { node.link.open = false; node.up = false; node.conn.close(); };
   sim.push(node);
@@ -270,11 +270,11 @@ for (const n of sim) n.disconnect();
   const rogue = new WebSocketServer({ port: 7793 });
   const evil = { app: "demo.tasks", channel: "stable", version: wire.version + 100, layers: { main: blobs.v1, footer: blobs.stats }, order: ["main", "footer"] };
   const evilSig = await signManifest(evil, oldRelease.privateKey);
-  rogue.on("connection", (ws) => ws.on("message", (raw) => {
+  rogue.on("connection", (ws) => { ws.send(JSON.stringify({ t: "challenge", nonce: "rogue" })); ws.on("message", (raw) => {
     const m = JSON.parse(raw);
     if (m.t === "hello") ws.send(JSON.stringify({ t: "manifest", manifest: evil, sig: evilSig }));
     if (m.t === "want") for (const h of m.hashes) ws.send(JSON.stringify({ t: "blob", hash: h, data: Buffer.from(wire.blobs.get(h)).toString("base64") }));
-  }));
+  }); });
   const run = (extra) => { const p = spawn(process.execPath, [join(ROOT, "host/fleet-host.mjs"), "ws://localhost:7793", join(work, "keyring.pinned.json"), "--id", "proc0-0", "--channel", "stable", ...extra], { stdio: ["pipe", "pipe", "pipe"] }); p.out = ""; p.stdout.on("data", (d) => (p.out += d)); return p; };
   const until = async (p, re) => { const t = Date.now(); while (!re.test(p.out) && Date.now() - t < 5000) await sleep(20); return p.out.match(re)?.[0]; };
   const kept = run(["--trust-dir", join(work, "trust")]), fresh = run([]);

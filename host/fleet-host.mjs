@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { LiveHost } from "./llp-core.js";
-import { FleetAgent, TrustStore } from "./fleet.js";
+import { FleetAgent, TrustStore, generateDeviceKey } from "./fleet.js";
 
 const [url, keyringFile] = process.argv.slice(2);
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
@@ -18,13 +18,28 @@ const trustDir = arg("--trust-dir", null);
 if (trustDir) mkdirSync(trustDir, { recursive: true });
 const trustFile = (id) => join(trustDir, `${id.replace(/[^\w.-]/g, "_")}.keyring.json`);
 const agents = [];
+const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
+// The device key proves this host's id to the controller. With --trust-dir it is kept on disk, so
+// a restarted host is still recognised; without it every start makes a new key, and a controller
+// that already knows this id refuses the host.
+async function deviceKeyFor(id) {
+  const file = trustDir && join(trustDir, `${id.replace(/[^\w.-]/g, "_")}.device.json`);
+  if (file && existsSync(file)) {
+    const k = JSON.parse(readFileSync(file, "utf8"));
+    return { privateKey: await crypto.subtle.importKey("jwk", k.private, ECDSA, true, ["sign"]), publicJwk: k.public };
+  }
+  const k = await generateDeviceKey();
+  if (file) { writeFileSync(file + ".tmp", JSON.stringify({ private: await crypto.subtle.exportKey("jwk", k.privateKey), public: k.publicJwk }), { mode: 0o600 }); renameSync(file + ".tmp", file); }
+  else if (!agents.length) console.error("warning: no --trust-dir, so this host's device key and keyring are not kept across restarts");
+  return k;
+}
 
-function start(id) {
+async function start(id) {
   const host = new LiveHost({});
   let ws;
   const saved = trustDir && existsSync(trustFile(id)) ? JSON.parse(readFileSync(trustFile(id), "utf8")) : null;
   const trust = new TrustStore(saved && saved.app === pinned.app && saved.keyring > pinned.keyring ? saved : pinned);
-  const agent = new FleetAgent({ host, id, channel, trust, send: (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m)) });
+  const agent = new FleetAgent({ host, id, channel, trust, deviceKey: await deviceKeyFor(id), send: (m) => ws?.readyState === 1 && ws.send(JSON.stringify(m)) });
   const prevSend = agent.send;
   agent.send = (m) => {
     if (m.t === "status") console.log(JSON.stringify({ ...m, at: Date.now() }));
@@ -33,7 +48,7 @@ function start(id) {
   };
   const connect = () => {
     ws = new WebSocket(url);
-    ws.onopen = () => agent.hello();
+    ws.onopen = () => agent.connected(); // the controller's challenge triggers the signed hello
     ws.onmessage = (ev) => agent.receive(JSON.parse(ev.data));
     ws.onclose = () => setTimeout(connect, 500); // keep trying: an offline host catches up on reconnect
     ws.onerror = () => {};
@@ -41,7 +56,7 @@ function start(id) {
   connect();
   agents.push(agent);
 }
-for (let i = 0; i < count; i++) start(count === 1 ? baseId : `${baseId}-${i}`);
+for (let i = 0; i < count; i++) await start(count === 1 ? baseId : `${baseId}-${i}`);
 
 createInterface({ input: process.stdin }).on("line", async (line) => {
   const [cmd, a, b] = line.trim().split(" ");

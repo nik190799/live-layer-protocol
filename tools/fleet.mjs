@@ -8,7 +8,8 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { sha256, signManifest, generatePublisherKey, b64 } from "../host/llp-core.js";
-import { signDoc, bucketOf, rolloutSeed } from "../host/fleet.js";
+import { signDoc, verifyDoc, bucketOf, rolloutSeed } from "../host/fleet.js";
+import { canonical } from "../host/llp-core.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
@@ -17,19 +18,27 @@ const importKey = async (k) => ({ privateKey: await crypto.subtle.importKey("jwk
 
 export class FleetController {
   // rootKeys: [{privateKey, publicJwk}] (offline in production; pass them to rotate* instead of keeping them here)
-  constructor({ app, rootKeys = [], keyrings, releaseKey, version = Date.now(), onEvent = () => {} }) {
-    Object.assign(this, { app, rootKeys, keyrings, releaseKey, version, onEvent });
+  // enrollment: how a host id gets its device key (RT-03).
+  //   "tofu" (default): the first key that proves itself for an id is bound to it for good;
+  //                     a later connection with another key is refused.
+  //   "closed":         only ids registered with enroll(id, publicJwk) may join.
+  constructor({ app, rootKeys = [], keyrings, releaseKey, version = Date.now(), onEvent = () => {}, enrollment = "tofu", devices = {} }) {
+    Object.assign(this, { app, rootKeys, keyrings, releaseKey, version, onEvent, enrollment });
     this.blobs = new Map();     // hash -> bytes
     this.channels = new Map();  // name -> { current: {manifest, sig}, history: [{version, layers, order}] }
     this.hosts = new Map();     // id -> record from hello/status
+    this.devices = new Map(Object.entries(devices)); // host id -> device public key (JWK)
+    this.stats = new Map();     // channel -> running counts (RT-06): convergence() is O(1), not O(hosts)
+    this.members = new Map();   // channel -> Set of host records
     this.waiters = new Set();
+    this.onEnroll = () => {};
   }
 
-  static async create({ app, roots = 1, threshold = 1, version } = {}) {
+  static async create({ app, roots = 1, threshold = 1, version, ...opts } = {}) {
     const rootKeys = []; for (let i = 0; i < roots; i++) rootKeys.push(await generatePublisherKey());
     const releaseKey = await generatePublisherKey();
     const doc = { app, keyring: 1, root: { keys: rootKeys.map((k) => k.publicJwk), threshold }, release: { keys: [releaseKey.publicJwk] } };
-    const fleet = new FleetController({ app, rootKeys, releaseKey, keyrings: [], version });
+    const fleet = new FleetController({ app, rootKeys, releaseKey, keyrings: [], version, ...opts });
     fleet.keyrings.push({ doc, sigs: await fleet.signKeyring(doc, rootKeys.slice(0, threshold)) });
     return fleet;
   }
@@ -78,7 +87,8 @@ export class FleetController {
   async sign(channel, manifest) {
     const ch = this.channel(channel);
     ch.current = { manifest, sig: await signManifest(manifest, this.releaseKey.privateKey) };
-    for (const host of this.hosts.values()) if (host.online && host.channel === channel) host.send({ t: "manifest", ...ch.current });
+    this.recount(channel); // the target changed, so every host's class on this channel may have changed
+    for (const host of this.members.get(channel) ?? []) if (host.online) host.send({ t: "manifest", ...ch.current });
   }
 
   // ---------- key rotation ----------
@@ -107,55 +117,125 @@ export class FleetController {
 
   async pushKeyring(doc, sigs) {
     this.keyrings.push({ doc, sigs });
+    for (const ch of this.members.keys()) this.recount(ch); // oldKeyring counts depend on the latest keyring
     for (const host of this.hosts.values()) if (host.online) host.send({ t: "keyring", doc, sigs });
     this.onEvent({ kind: "keyring", keyring: doc.keyring });
   }
 
   // ---------- hosts ----------
+  // Register a host's device key ahead of time (required with enrollment "closed").
+  enroll(id, publicJwk) { this.devices.set(id, publicJwk); this.onEnroll(id, publicJwk); }
+
   // One call per connection. `send` delivers a message to that host. Returns the connection's handlers.
+  // A connection starts with a challenge; the host answers with a hello signed by its device key over
+  // the challenge (so it can't be replayed on another connection). Until then the connection can't
+  // change any host record or fetch blobs (RT-03).
   attach(send) {
-    let rec = null;
+    const conn = { send, rec: null, nonce: b64.enc(crypto.getRandomValues(new Uint8Array(18))), queue: Promise.resolve(), closed: false };
+    send({ t: "challenge", nonce: conn.nonce });
+    const handle = async (msg) => {
+      if (conn.closed || !msg || typeof msg !== "object") return;
+      if (msg.t === "hello") return this.hello(conn, msg);
+      const rec = conn.rec;
+      if (!rec) return send({ t: "error", code: "unauthorized", message: "answer the challenge with a signed hello first" });
+      if (msg.t === "want") {
+        for (const h of msg.hashes || []) if (this.blobs.has(h)) send({ t: "blob", hash: h, data: b64.enc(this.blobs.get(h)) });
+      } else if (msg.t === "status" && msg.host === rec.id) {
+        // Reports come only over a connection that proved it holds this host's device key.
+        Object.assign(rec, { version: msg.version, keyring: msg.keyring, target: msg.target, percent: msg.percent, state: msg.state, reason: msg.reason, seen: Date.now() });
+        if (msg.state === "reverted") rec.reverted = msg.version;
+        this.update(rec);
+        this.onEvent({ kind: "status", ...msg });
+        this.tick();
+      }
+    };
     return {
-      message: (msg) => {
-        if (msg.t === "hello") {
-          rec = this.hosts.get(msg.host) ?? { id: msg.host };
-          Object.assign(rec, { channel: msg.channel, version: msg.version, keyring: msg.keyring, online: true, send, seen: Date.now() });
-          this.hosts.set(rec.id, rec);
-          for (const k of this.keyrings) if (k.doc.keyring > msg.keyring) send({ t: "keyring", ...k });
-          const cur = this.channels.get(msg.channel)?.current;
-          if (cur) send({ t: "manifest", ...cur });
-          this.tick();
-        } else if (msg.t === "want") {
-          for (const h of msg.hashes || []) if (this.blobs.has(h)) send({ t: "blob", hash: h, data: b64.enc(this.blobs.get(h)) });
-        } else if (msg.t === "status" && rec && msg.host === rec.id) {
-          // Reports are the host's own word: useful for tracking, never a security decision.
-          Object.assign(rec, { version: msg.version, keyring: msg.keyring, target: msg.target, percent: msg.percent, state: msg.state, reason: msg.reason, seen: Date.now() });
-          if (msg.state === "reverted") rec.reverted = msg.version;
-          this.onEvent({ kind: "status", ...msg });
-          this.tick();
-        }
+      // Messages on one connection are handled in order (a hello's signature check is async).
+      message: (msg) => { const r = conn.queue.then(() => handle(msg)); conn.queue = r.catch(() => {}); return r; },
+      close: () => {
+        conn.closed = true;
+        const rec = conn.rec;
+        if (!rec) return;
+        rec.conns.delete(conn);
+        if (!rec.conns.size) { rec.online = false; this.update(rec); this.tick(); }
       },
-      close: () => { if (rec && rec.send === send) { rec.online = false; this.tick(); } },
     };
   }
 
+  async hello(conn, msg) {
+    const refuse = (why) => { this.onEvent({ kind: "refused", host: msg.host, reason: why }); conn.send({ t: "error", code: "unauthorized", message: why }); };
+    const id = msg.host, auth = msg.auth;
+    if (typeof id !== "string" || !id || id.length > 256) return refuse("hello needs a host id");
+    if (!auth?.key || typeof auth.sig !== "string") return refuse("hello must be signed with the host's device key");
+    const known = this.devices.get(id);
+    if (known && canonical(pubOf(known)) !== canonical(pubOf(auth.key))) return refuse(`host ${id} is enrolled with a different device key`);
+    if (!known && this.enrollment !== "tofu") return refuse(`host ${id} is not enrolled`);
+    const { auth: _, ...body } = msg;
+    if (!(await verifyDoc({ ...body, nonce: conn.nonce }, auth.sig, auth.key))) return refuse("hello signature doesn't match the challenge");
+    if (conn.closed) return;
+    if (conn.rec && conn.rec.id !== id) return refuse("one connection speaks for one host");
+    if (!known) this.enroll(id, pubOf(auth.key));
+    const rec = this.hosts.get(id) ?? { id, conns: new Set(), send: (m) => { for (const c of rec.conns) c.send(m); } };
+    rec.conns.add(conn);
+    conn.rec = rec;
+    Object.assign(rec, { channel: msg.channel, version: msg.version, keyring: msg.keyring, online: true, seen: Date.now() });
+    this.hosts.set(id, rec);
+    this.update(rec);
+    for (const k of this.keyrings) if (k.doc.keyring > msg.keyring) conn.send({ t: "keyring", ...k });
+    const cur = this.channels.get(msg.channel)?.current;
+    if (cur) conn.send({ t: "manifest", ...cur });
+    this.tick();
+  }
+
   // ---------- convergence ----------
+  // Each host record contributes to its channel's running counts. A record is re-counted when it
+  // changes (O(1) per report), and a whole channel only when its target release or the keyring
+  // changes (RT-06: per-report cost no longer grows with the fleet).
+  classify(h) {
+    const cur = this.channels.get(h.channel)?.current?.manifest;
+    const T = cur?.version, percent = cur?.rollout?.percent ?? 100;
+    if (!h.online) return { cls: "offline" };
+    const old = h.keyring < this.keyring.keyring;
+    if (h.version === T && h.reverted === T) return { cls: "reverted", old };
+    if (h.version === T && (h.state === "live" || h.state === "keyring")) return { cls: "live", old };
+    if (h.target === T && h.state === "skipped" && h.percent === percent && percent < 100) return { cls: "skipped", old };
+    if (h.target === T && h.state === "rejected") return { cls: "rejected", old, reason: h.reason };
+    return { cls: "pending", old };
+  }
+  statsOf(channel) {
+    let s = this.stats.get(channel);
+    if (!s) this.stats.set(channel, s = { hosts: 0, online: 0, offline: 0, live: 0, skipped: 0, rejected: 0, reverted: 0, pending: 0, oldKeyring: 0, reasons: new Map(), pendingIds: new Set() });
+    return s;
+  }
+  contribute(h, c, sign) {
+    const s = this.statsOf(c.channel);
+    s.hosts += sign;
+    if (c.cls === "offline") { s.offline += sign; return; }
+    s.online += sign;
+    s[c.cls] += sign;
+    if (c.old) s.oldKeyring += sign;
+    if (c.cls === "rejected") { const n = (s.reasons.get(c.reason) ?? 0) + sign; n ? s.reasons.set(c.reason, n) : s.reasons.delete(c.reason); }
+    if (c.cls === "pending") sign > 0 ? s.pendingIds.add(h.id) : s.pendingIds.delete(h.id);
+  }
+  update(h) {
+    if (h.contrib) {
+      this.contribute(h, h.contrib, -1);
+      if (h.contrib.channel !== h.channel) this.members.get(h.contrib.channel)?.delete(h);
+    }
+    if (!this.members.has(h.channel)) this.members.set(h.channel, new Set());
+    this.members.get(h.channel).add(h);
+    h.contrib = { channel: h.channel, ...this.classify(h) };
+    this.contribute(h, h.contrib, +1);
+  }
+  recount(channel) { for (const h of this.members.get(channel) ?? []) this.update(h); }
+
   convergence(channel) {
     const cur = this.channels.get(channel)?.current?.manifest;
     const T = cur?.version, percent = cur?.rollout?.percent ?? 100;
-    const r = { channel, version: T, percent, hosts: 0, online: 0, live: 0, skipped: 0, rejected: 0, reverted: 0, pending: 0, offline: 0, oldKeyring: 0, reasons: {}, laggards: [] };
-    for (const h of this.hosts.values()) {
-      if (h.channel !== channel) continue;
-      r.hosts++;
-      if (!h.online) { r.offline++; continue; }
-      r.online++;
-      if (h.keyring < this.keyring.keyring) r.oldKeyring++;
-      if (h.version === T && h.reverted === T) r.reverted++;
-      else if (h.version === T && (h.state === "live" || h.state === "keyring")) r.live++;
-      else if (h.target === T && h.state === "skipped" && h.percent === percent && percent < 100) r.skipped++;
-      else if (h.target === T && h.state === "rejected") { r.rejected++; r.reasons[h.reason] = (r.reasons[h.reason] ?? 0) + 1; }
-      else { r.pending++; if (r.laggards.length < 10) r.laggards.push(h.id); }
-    }
+    const s = this.statsOf(channel);
+    const laggards = [];
+    for (const id of s.pendingIds) { if (laggards.length >= 10) break; laggards.push(id); }
+    const r = { channel, version: T, percent, hosts: s.hosts, online: s.online, live: s.live, skipped: s.skipped, rejected: s.rejected, reverted: s.reverted, pending: s.pending, offline: s.offline, oldKeyring: s.oldKeyring, reasons: Object.fromEntries(s.reasons), laggards };
     r.converged = !!T && r.online > 0 && r.pending === 0 && r.rejected === 0 && r.reverted === 0 && r.oldKeyring === 0 && (percent >= 100 ? r.skipped === 0 : true);
     // converged ignores offline hosts (a phone that's switched off shouldn't block a release). complete
     // doesn't: every host the controller has ever seen on this channel is on the target. Gate anything
@@ -212,14 +292,18 @@ export class FleetController {
     writeFileSync(join(dir, "release.json"), JSON.stringify(await exportKey(this.releaseKey)));
     writeFileSync(join(dir, "keyrings.json"), JSON.stringify(this.keyrings));
     writeFileSync(join(dir, "keyring.pinned.json"), JSON.stringify(this.keyring)); // ship this with hosts
+    writeFileSync(join(dir, "devices.json"), JSON.stringify(Object.fromEntries(this.devices)));
   }
   static async load(dir, opts = {}) {
     const keyrings = JSON.parse(readFileSync(join(dir, "keyrings.json"), "utf8"));
     const rootKeys = await Promise.all(JSON.parse(readFileSync(join(dir, "root.json"), "utf8")).map(importKey));
     const releaseKey = await importKey(JSON.parse(readFileSync(join(dir, "release.json"), "utf8")));
-    return new FleetController({ app: keyrings[0].doc.app, rootKeys, releaseKey, keyrings, ...opts });
+    const devices = existsSync(join(dir, "devices.json")) ? JSON.parse(readFileSync(join(dir, "devices.json"), "utf8")) : {};
+    return new FleetController({ app: keyrings[0].doc.app, rootKeys, releaseKey, keyrings, devices, ...opts });
   }
 }
+
+const pubOf = (jwk) => ({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
 
 // WebSocket transport. Returns the server.
 export async function serve(fleet, { port = 7720 } = {}) {
@@ -241,6 +325,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const fleet = existsSync(join(dir, "keyrings.json")) ? await FleetController.load(dir) : await FleetController.create({ app });
   await fleet.save(dir);
   fleet.onEvent = (e) => { if (e.kind !== "status") console.log("·", JSON.stringify(e)); };
+  fleet.onEnroll = () => { writeFileSync(join(dir, "devices.json"), JSON.stringify(Object.fromEntries(fleet.devices))); };
   await serve(fleet, { port });
   console.log(`fleet controller on ws://localhost:${port}; hosts pin ${join(dir, "keyring.pinned.json")}`);
   const layersOf = async (specs) => { const l = {}; for (const s of specs) { const [slot, f] = s.split("="); l[slot] = await fleet.addBlob(new Uint8Array(readFileSync(f))); } return l; };
