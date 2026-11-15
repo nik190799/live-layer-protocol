@@ -278,6 +278,36 @@ class Sandbox {
 }
 
 const PLACES = new Set(["client", "server", "any"]);
+
+// ---------- per-slot key rules (red-team RT-04) ----------
+// manifest.keys = { slot: { own: [prefix...], read: [prefix...] } }. When a manifest declares keys,
+// each slot sees only keys under its own or read prefixes and may write only under its own
+// prefixes; no key prefix has two owners. Host-internal keys (__schema.*) are never writable by a
+// layer, with or without declared keys.
+const HOST_KEYS = "__schema.";
+const under = (prefixes, k) => prefixes.some((p) => k.startsWith(p));
+export function keyRules(manifest) {
+  const decl = manifest.keys;
+  if (decl === undefined) return null;
+  if (!decl || typeof decl !== "object" || Array.isArray(decl)) throw new LayerError("keys must be an object of { slot: { own, read } }");
+  const rules = new Map(), owners = [];
+  const list = (slot, name, v) => {
+    if (v === undefined) return [];
+    if (!Array.isArray(v) || v.length > 64 || !v.every((p) => typeof p === "string" && p.length > 0 && p.length <= 256)) throw new LayerError(`keys.${slot}.${name} must be a list of up to 64 non-empty prefixes`);
+    if (v.some((p) => p.startsWith(HOST_KEYS) || HOST_KEYS.startsWith(p))) throw new LayerError(`keys.${slot}.${name}: ${HOST_KEYS}* keys belong to the host`);
+    return v;
+  };
+  for (const slot of Object.keys(manifest.layers)) {
+    const d = decl[slot];
+    if (!d || typeof d !== "object") throw new LayerError(`keys: slot ${slot} declares no keys (every slot needs an entry once a manifest declares keys)`);
+    const own = list(slot, "own", d.own), read = list(slot, "read", d.read);
+    for (const p of own) for (const [q, other] of owners) if (p.startsWith(q) || q.startsWith(p)) throw new LayerError(`keys: "${p}" (${slot}) overlaps "${q}" (${other}); a key has one owner`);
+    for (const p of own) owners.push([p, slot]);
+    rules.set(slot, { own, read, id: JSON.stringify([own, read]) });
+  }
+  return rules;
+}
+const canRead = (rule, k) => !rule || under(rule.own, k) || under(rule.read, k);
 export const placement = (manifest, slot) => manifest.hosts?.[slot] ?? "client";
 
 export class LiveHost {
@@ -346,7 +376,8 @@ export class LiveHost {
   }
 
   // ---------- layer instances (each in its own worker) ----------
-  async load(slot, hash) {
+  ruleFor(slot) { return this.keyRules?.get(slot) ?? null; }
+  async load(slot, hash, rule = this.ruleFor(slot)) {
     const inline = this.limits.isolation === "inline";
     let box = this.pool.pop(); // a healthy worker freed by an earlier swap: no boot wait (its state replica stays valid)
     if (!box) {
@@ -365,6 +396,7 @@ export class LiveHost {
       const r = await box.request({ op: "load", bytes, maxNodes: this.limits.uiNodes, memCap: pages * PAGE, headless: this.headless }, this.limits.loadMs);
       this.flushLogs(slot, r.logs);
       box.schema = r.schema; box.hasMigrate = r.hasMigrate; box.hasView = r.hasView;
+      box.rule = rule;
       return box;
     } catch (e) { box.kill(); this.flushLogs(slot, e.logs); throw e; }
   }
@@ -372,16 +404,18 @@ export class LiveHost {
   // Bring a worker's replica of `kv` up to date: the changed keys ride along with the call, and only
   // a worker that has never seen this store (or fell behind the change log) gets a full copy.
   async syncFor(box, kv) {
-    const keys = box.src === kv ? kv.since(box.rev) : null;
+    const rule = box.rule ?? null, scope = rule?.id ?? "*";
+    const keys = box.src === kv && box.scope === scope ? kv.since(box.rev) : null;
     if (keys) {
       const set = [], del = [];
-      for (const k of keys) kv.has(k) ? set.push([k, kv.get(k)]) : del.push(k);
+      for (const k of keys) if (canRead(rule, k)) kv.has(k) ? set.push([k, kv.get(k)]) : del.push(k);
       box.src = kv; box.rev = kv.rev;
       return set.length || del.length ? { set, del } : null;
     }
-    const full = kv.snapshot();
+    let full = kv.snapshot();
+    if (rule) { const m = new Map(); for (const [k, v] of full) if (canRead(rule, k)) m.set(k, v); full = m; } // a slot's replica holds only what it may read
     const r = await box.request({ op: "sync", sync: { full } }, this.limits.loadMs + Math.ceil(full.size / 1000)); // ~1 ms per 1000 keys to copy
-    box.src = kv; box.rev = kv.rev;
+    box.src = kv; box.rev = kv.rev; box.scope = scope;
     return null;
   }
 
@@ -394,6 +428,7 @@ export class LiveHost {
       const r = await box.request({ op: "call", fn, args, event, sync }, ms);
       this.flushLogs(slot, r.logs);
       r.writes = this.filterWrites(slot, r.writes);
+      this.checkWrites(slot, box.rule, r.writes);
       if (apply) for (const [k, v] of r.writes) kv.set(k, v);
       return r;
     } catch (e) { this.flushLogs(slot, e.logs); throw new LayerError(`${fn}: ${e.message}`); }
@@ -405,6 +440,14 @@ export class LiveHost {
     const kept = writes.filter(([k]) => !k.startsWith("shared/"));
     if (kept.length !== writes.length) this.log("error", `${slot}: wrote shared/ keys on a client; dropped (shared/ is owned by the server host)`, { slot });
     return kept;
+  }
+  // A write outside what the slot owns fails the call, like a trap: nothing it wrote is kept.
+  checkWrites(slot, rule, writes) {
+    for (const [k] of writes) {
+      if (this.headless && (k === "__reply" || k === "__error")) continue; // the server's reply channel, never stored
+      if (k.startsWith(HOST_KEYS)) throw new LayerError(`${slot} wrote "${k}": ${HOST_KEYS}* keys belong to the host`);
+      if (rule && !under(rule.own, k)) throw new LayerError(`${slot} wrote "${k}", outside the keys it owns`);
+    }
   }
   // A worker whose layer was swapped out cleanly is reused for the next load (its old instance is
   // dropped when the new module loads). Workers that failed or overran are always killed instead.
@@ -430,6 +473,9 @@ export class LiveHost {
     if (vp) return this.reject(manifest, vp);
     for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`);
 
+    let rules;
+    try { rules = keyRules(manifest); } catch (e) { return this.reject(manifest, e.message); }
+
     // The whole manifest is verified, but only the slots placed on this host are fetched and run.
     const mine = Object.entries(manifest.layers).filter(([slot]) => this.placedHere(manifest, slot));
     // Fetch only what we don't have (content addressing).
@@ -446,7 +492,7 @@ export class LiveHost {
     try {
       for (const [slot, hash] of mine) {
         if (this.slots.get(slot)?.hash === hash) continue;
-        const box = await this.load(slot, hash);
+        const box = await this.load(slot, hash, rules?.get(slot) ?? null);
         staged.push({ slot, hash, box });
         const want = box.schema;
         const have = shadowKv.get(`__schema.${slot}`) ?? want;
@@ -472,6 +518,8 @@ export class LiveHost {
       if (cur) this.retire(slot, cur, prevVersion); // previous versions are kept as hashes and re-instantiated only on revert
       this.slots.set(slot, { hash, box, prev: cur ? [cur.hash, ...cur.prev].slice(0, this.maxPrev) : [] });
     }
+    this.keyRules = rules;
+    for (const [slot, s] of this.slots) s.box.rule = this.ruleFor(slot); // unchanged code can still get new key rules
     const keep = new Set(mine.map(([slot]) => slot));
     for (const s of [...this.slots.keys()]) if (!keep.has(s)) { this.retire(s, this.slots.get(s), prevVersion); this.slots.delete(s); }
     this.order = (manifest.order ?? Object.keys(manifest.layers)).filter((s) => keep.has(s));

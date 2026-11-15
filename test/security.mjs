@@ -168,6 +168,40 @@ const M = (version, extra = {}) => ({ app: "demo.tasks", version, layers: { main
   function existsSnapshot(d) { return readdirSync(d).includes("snapshot.json"); }
 }
 
+// ---------- RT-04: each slot sees and writes only its own keys ----------
+{
+  const snoop = read("snoop.wasm"), hn = await sha256(snoop); blobs.set(hn, snoop);
+  let ver = 0, last = null;
+  const host = new LiveHost({ app: "demo.tasks", trustedKeys: [key.publicJwk], limits: INLINE, onRender: (v) => { last = v; } });
+  host.kv.set("tasks.n", 1); host.kv.set("tasks.0.text", "private task"); host.kv.set("tasks.0.done", 0); host.kv.set("secret.note", "main's secret");
+  const ship = (keys) => signed(host, { app: "demo.tasks", version: ++ver, layers: { main: ht, snoop: hn }, order: ["main", "snoop"], ...(keys ? { keys } : {}) });
+  const seen = () => JSON.stringify(last.find((x) => x.slot === "snoop")?.tree ?? "");
+  const isolated = { main: { own: ["tasks.", "draft", "secret."] }, snoop: { own: ["snoop."] } };
+
+  const r1 = await ship(isolated);
+  check("SEC25 with declared keys, a slot can't read another slot's keys", r1.ok && seen().includes("seen:||0") && !seen().includes("private"), seen());
+  await host.dispatch("snoop", "overwrite");
+  check("SEC26 a write outside the slot's own keys fails the call and nothing it wrote is kept", host.kv.get("tasks.0.text") === "private task" && host.history.some((e) => /outside the keys it owns/.test(e.msg)));
+  await host.dispatch("snoop", "own");
+  check("SEC27 the slot still reads and writes its own keys", host.kv.get("snoop.count") === 1);
+  await host.dispatch("snoop", "schema");
+  check("SEC28 no layer can write the host's __schema.* markers", host.kv.get("__schema.main") !== 99 && host.history.some((e) => /belong to the host/.test(e.msg)));
+
+  const r2 = await ship({ main: { own: ["tasks.", "draft", "secret."] }, snoop: { own: ["snoop."], read: ["tasks."] } });
+  check("SEC29 a read share in the manifest lets a slot read exactly those keys (not the rest)", r2.ok && seen().includes("seen:private task||1"), seen());
+  await host.dispatch("main", "add"); // main still owns tasks.* and works as before
+  const r3 = await ship({ main: { own: ["tasks."] }, snoop: { own: ["tasks.0."] } });
+  const r4 = await ship({ main: { own: ["tasks."] } });
+  const r5 = await ship({ main: { own: ["__schema."] }, snoop: {} });
+  check("SEC30 manifests with overlapping owners, a missing slot entry or a claim on host keys are refused",
+    !r3.ok && /overlaps/.test(r3.reason) && !r4.ok && /declares no keys/.test(r4.reason) && !r5.ok && /belong to the host/.test(r5.reason), [r3.reason, r4.reason, r5.reason].join(" / "));
+  const r6 = await ship(null);
+  await host.dispatch("snoop", "schema");
+  check("SEC31 without declared keys (older manifests) slots share state as before, but host keys stay protected",
+    r6.ok && seen().includes("main's secret") && host.kv.get("__schema.main") !== 99, seen());
+  host.close();
+}
+
 // ---------- RT-03: the fleet controller authenticates host ids ----------
 // A raw connection to the controller: collects what it's sent and can say a signed hello.
 function wire(fleet) {

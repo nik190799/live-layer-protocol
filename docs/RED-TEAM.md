@@ -22,6 +22,7 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 | ST-02 durable server state | Fixed (single node) | Opt-in: pass `dataDir` to `ServerHost`; without it the host warns. Replication across machines and ST-03 are still open. |
 | RT-03 authenticate hosts to the controller | Fixed | Behaviour change: fleet connections now start with a challenge, and hosts sign `hello` with a device key. `fleet-host.mjs` keeps the key in `--trust-dir`. Default enrollment is trust-on-first-use; `enrollment: "closed"` requires `enroll()`. |
 | RT-06 fleet controller counts | Fixed | Running counts per channel. 32,000 hosts: 0.3 s per round of reports, down from 10.7 s. Sharding the controller is still open. |
+| RT-04 per-slot state isolation | Fixed, opt-in | Manifests that declare `keys` get isolation (filtered replicas, writes checked). `__schema.*` is protected for everyone. Manifests without `keys` still share state, so existing apps keep working. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -62,7 +63,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** give each host its own device key at install and have it sign `hello` and `status` messages. Or use mutual TLS. Keep every authenticated connection for a host id, not just the latest. Rollout gates should count only authenticated reports.
 
-### RT-04 Layers on one host share all their data (High, proven)
+### RT-04 Layers on one host share all their data (High, proven) — FIXED (opt-in)
+
+**Fixed:** a signed `keys` field (SPEC 6.2) gives each slot `own` and `read` prefixes. The host sends a slot's worker only the keys it may read, and fails any call that writes outside the slot's own keys. Owners may not overlap. No layer can write `__schema.*`, with or without `keys`. Tests SEC25 to SEC31 use a test layer (`layers/variants/snoop.ts`) that tries to read and overwrite another slot's data. Still open: manifests without `keys` keep the shared key space, so isolation is opt-in. Making it the default needs a protocol version field (GOV-01). The report suggested owner-declared `shares`; this fix uses reader-declared `read` instead, which is equivalent because the publisher signs both.
 
 **In plain words:** every layer on a device reads and writes the same pool of saved data. A footer widget from another team can read the main app's private notes, and it can overwrite them, including the host's internal schema markers. That's fine for one team's demo. It's a blocker once layers come from different vendors or are written by AI.
 
