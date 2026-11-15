@@ -20,6 +20,8 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 | RT-01 fail closed without keys | Fixed | Behaviour change: a host with no keys now refuses everything. Development hosts must pass `allowUnsigned: true`. |
 | RT-02 bound versions, key-epoch ordering | Fixed | Versions must be safe integers at most one year ahead; fleet manifests carry `epoch` = keyring, so a rotation outranks a poisoned version. |
 | ST-02 durable server state | Fixed (single node) | Opt-in: pass `dataDir` to `ServerHost`; without it the host warns. Replication across machines and ST-03 are still open. |
+| RT-03 authenticate hosts to the controller | Fixed | Behaviour change: fleet connections now start with a challenge, and hosts sign `hello` with a device key. `fleet-host.mjs` keeps the key in `--trust-dir`. Default enrollment is trust-on-first-use; `enrollment: "closed"` requires `enroll()`. |
+| RT-06 fleet controller counts | Fixed | Running counts per channel. 32,000 hosts: 0.3 s per round of reports, down from 10.7 s. Sharding the controller is still open. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -48,7 +50,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** require `Number.isSafeInteger(version)`. Bound the jump size, for example by refusing a release whose version is more than one year of milliseconds ahead. Tie versions to the keyring, so that ordering is checked as the pair (keyring, version) and a new keyring can start a fresh counter.
 
-### RT-03 The fleet controller trusts a host's claimed name (High, proven)
+### RT-03 The fleet controller trusts a host's claimed name (High, proven) — FIXED
+
+**Fixed:** each connection starts with a challenge, and the host answers with a hello signed by its device key over that challenge. A host id is bound to one device key, by trust on first use or by pre-enrollment (`enrollment: "closed"`). A different key is refused, as is a replayed hello. An unproven connection can't change records, report status or fetch blobs. A host may keep several authenticated connections, and none replaces another. Tests SEC18 to SEC22. Still open: with trust on first use, the first claimant of a brand-new id owns it, and messages rely on TLS for integrity in transit.
 
 **In plain words:** when a device connects, it says "I'm host h1" and the controller believes it. If a second connection uses the same name, the controller sends future releases and key changes to the newcomer, and the real h1 silently stops getting them. That includes key rotations, so the real device can keep trusting a key that was meant to be revoked. Fake reports can also make a rollout look healthy, or look failed and trigger an automatic rollback.
 
@@ -234,7 +238,9 @@ A busy device can cut off an honest layer. The fix is already noted in the spec:
 
 ## 5. Fleet operations, scale and performance
 
-### RT-06 The fleet controller slows down with the square of the number of hosts (High, proven)
+### RT-06 The fleet controller slows down with the square of the number of hosts (High, proven) — FIXED
+
+**Fixed:** the controller keeps running counts per channel and state, and updates them when one host's record changes. It recounts a channel only when its target release or the keyring changes. SEC23 checks that the counts always match a full scan across 400 random operations. SEC24 checks that cost grows linearly. Measured on the same VM: 4,000 hosts 25 ms, 16,000 hosts 97 ms, 32,000 hosts 0.3 s (was 132 ms, 3.6 s and 10.7 s). Still open: sharding, so that a million devices don't depend on one process.
 
 **In plain words:** while a rollout waits for hosts to report, every status message makes the controller recount every host. Doubling the fleet roughly quadruples the work. Measured on this VM, one status report from each host took:
 

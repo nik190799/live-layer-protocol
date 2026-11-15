@@ -89,10 +89,18 @@ export class TrustStore {
 //   publisher -> host  {t:"keyring", doc, sigs}   (oldest first when the host is behind)
 //   host -> publisher  {t:"status", host, channel, version, keyring, target, percent, state, reason}
 // where state is live | skipped (not in this rollout's share) | rejected | reverted | keyring | keyring-rejected.
+// deviceKey: { privateKey, publicJwk } that proves this host's id to the controller (RT-03). Keep it
+// with the host's other state; without one, a fresh key is made, and a controller that already bound
+// this id to another key will refuse the host.
+export async function generateDeviceKey() {
+  const kp = await crypto.subtle.generateKey(ECDSA, true, ["sign", "verify"]);
+  return { privateKey: kp.privateKey, publicJwk: await crypto.subtle.exportKey("jwk", kp.publicKey) };
+}
 export class FleetAgent {
-  constructor({ host, id, channel, trust, send = () => {} }) {
+  constructor({ host, id, channel, trust, send = () => {}, deviceKey = null }) {
     if (!id) throw new Error("FleetAgent needs a stable host id");
-    Object.assign(this, { host, id, channel, trust, send });
+    Object.assign(this, { host, id, channel, trust, send, deviceKey });
+    this.nonce = null;
     host.trustedKeys = trust.releaseKeys();
     host.app ??= trust.app;            // pin the host to the keyring's app from the start (RT-05)
     host.maxEpoch = trust.version;     // a manifest may claim an epoch only up to the keyring this host trusts (RT-02)
@@ -104,8 +112,16 @@ export class FleetAgent {
     const prev = host.onLog;
     host.onLog = (e) => { prev?.(e); if (e.kind === "rollback") { this.reverts++; this.report("reverted", e.msg); } };
   }
-  hello() {
-    this.send({ t: "hello", app: this.trust.app, host: this.id, channel: this.channel, version: this.host.version, keyring: this.trust.version, have: [...this.host.blobs.keys()] });
+  // Call when a new connection opens: the hello waits for that connection's challenge.
+  connected() { this.nonce = null; }
+  // Sends a hello signed over the current connection's challenge (a no-op until one has arrived).
+  async hello() {
+    if (!this.nonce) return;
+    const nonce = this.nonce;
+    this.deviceKey ??= await generateDeviceKey();
+    const body = { t: "hello", app: this.trust.app, host: this.id, channel: this.channel, version: this.host.version, keyring: this.trust.version, have: [...this.host.blobs.keys()] };
+    const { sig } = await signDoc({ ...body, nonce }, this.deviceKey.privateKey, this.deviceKey.publicJwk);
+    if (nonce === this.nonce) this.send({ ...body, auth: { key: this.deviceKey.publicJwk, sig } });
   }
   report(state, reason, extra = {}) {
     this.state = state;
@@ -116,6 +132,7 @@ export class FleetAgent {
   // fetched over the same stream with "want" (SPEC section 5).
   receive(msg) {
     if (msg.t === "blob") { const r = this.pending.get(msg.hash); if (r) { this.pending.delete(msg.hash); r(b64.dec(msg.data)); } return Promise.resolve(null); }
+    if (msg.t === "challenge") { if (typeof msg.nonce === "string") { this.nonce = msg.nonce; return this.hello().then(() => null); } return Promise.resolve(null); }
     return this.onMessage(msg, (h) => this.want(h));
   }
   want(hash) {
@@ -142,7 +159,7 @@ export class FleetAgent {
       const missed = this.state === "rejected" && /signature|epoch/.test(this.reason);
       this.report("keyring", `keyring ${r.keyring}`);
       // A release signed by the new key may have arrived first (e.g. from a cache); ask again.
-      if (missed) this.hello();
+      if (missed) await this.hello();
       return r;
     }
     if (msg.t !== "manifest") return null;

@@ -4,6 +4,17 @@
 import { readFileSync } from "node:fs";
 import { LiveHost, sha256, generatePublisherKey, signManifest } from "../host/llp-core.js";
 import { FleetController } from "../tools/fleet.mjs";
+import { generateDeviceKey, signDoc } from "../host/fleet.js";
+
+// A raw controller connection that answers the challenge with a hello signed by `dev`.
+async function join(fleet, sink, id, dev) {
+  let nonce = null;
+  const c = fleet.attach((m) => { if (m.t === "challenge") nonce = m.nonce; sink.push(m); });
+  const body = { t: "hello", host: id, channel: "stable", version: 0, keyring: 1 };
+  const { sig } = await signDoc({ ...body, nonce }, dev.privateKey, dev.publicJwk);
+  await c.message({ ...body, auth: { key: dev.publicJwk, sig } });
+  return c;
+}
 
 const read = (f) => new Uint8Array(readFileSync(new URL(`../build/${f}`, import.meta.url)));
 const out = [];
@@ -33,17 +44,17 @@ const fetchBlob = async () => tasks;
   host.close();
 }
 
-// RT-03: the fleet controller trusts whoever says hello with a host id; a second connection using
-// the same id takes over that host's record, so the real host stops getting releases.
+// RT-03: the fleet controller trusted whoever said hello with a host id; a second connection using
+// the same id took over that host's record, so the real host stopped getting releases.
 {
   const fleet = await FleetController.create({ app: "demo.tasks" });
   const real = [], other = [];
-  const c1 = fleet.attach((m) => real.push(m)); c1.message({ t: "hello", host: "h1", channel: "stable", version: 0, keyring: 1 });
-  const c2 = fleet.attach((m) => other.push(m)); c2.message({ t: "hello", host: "h1", channel: "stable", version: 0, keyring: 1 });
+  await join(fleet, real, "h1", await generateDeviceKey());
+  await join(fleet, other, "h1", await generateDeviceKey()); // same id, different device
   const hb = await fleet.addBlob(tasks);
   await fleet.publish("stable", { main: hb });
   const realGot = real.some((m) => m.t === "manifest");
-  report("RT-03 host identity not authenticated", !realGot, `original connection received the release: ${realGot}`);
+  report("RT-03 host identity not authenticated", !realGot || other.some((m) => m.t === "manifest"), `original connection received the release: ${realGot}; impostor received it: ${other.some((m) => m.t === "manifest")}`);
 }
 
 // RT-04: all layers on a host share one key space. The footer (stats.wasm) reads the main layer's
@@ -71,17 +82,18 @@ const fetchBlob = async () => tasks;
   host.close();
 }
 
-// RT-06: while a rollout waits, every status message rescans every host, so a round of reports
-// costs O(hosts^2). Linear would be 4x for 4x the hosts; this measures the real ratio.
+// RT-06: while a rollout waits, every status message rescanned every host, so a round of reports
+// cost O(hosts^2). Linear would be 4x for 4x the hosts; this measures the real ratio.
 {
+  const dev = await generateDeviceKey();
   const round = async (N) => {
     const f = await FleetController.create({ app: "demo.tasks" });
     const v = await f.publish("stable", { main: await f.addBlob(tasks) });
     const conns = [];
-    for (let i = 0; i < N; i++) { const c = f.attach(() => {}); c.message({ t: "hello", host: "h" + i, channel: "stable", version: 0, keyring: 1 }); conns.push(c); }
+    for (let i = 0; i < N; i++) conns.push(await join(f, [], "h" + i, dev));
     f.waitForConvergence("stable", 60000);
     const t = performance.now();
-    for (let i = 0; i < N; i++) conns[i].message({ t: "status", host: "h" + i, channel: "stable", version: v, keyring: 1, target: v, state: "live" });
+    for (let i = 0; i < N; i++) await conns[i].message({ t: "status", host: "h" + i, channel: "stable", version: v, keyring: 1, target: v, state: "live" });
     return performance.now() - t;
   };
   const a = await round(2000), b = await round(8000);

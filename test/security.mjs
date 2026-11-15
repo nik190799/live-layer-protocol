@@ -2,7 +2,7 @@
 // check here that asserts the SAFE behaviour, so a regression fails the build.
 import { readFileSync } from "node:fs";
 import { LiveHost, sha256, generatePublisherKey, signManifest, MAX_VERSION_AHEAD_MS } from "../host/llp-core.js";
-import { FleetAgent, TrustStore } from "../host/fleet.js";
+import { FleetAgent, TrustStore, generateDeviceKey, signDoc } from "../host/fleet.js";
 import { FleetController } from "../tools/fleet.mjs";
 
 const results = [];
@@ -166,6 +166,111 @@ const M = (version, extra = {}) => ({ app: "demo.tasks", version, layers: { main
   check("SEC17 a server host without a dataDir warns that its state is memory-only", warned.some((x) => /memory only/.test(x.msg)));
   rmSync(dir, { recursive: true, force: true });
   function existsSnapshot(d) { return readdirSync(d).includes("snapshot.json"); }
+}
+
+// ---------- RT-03: the fleet controller authenticates host ids ----------
+// A raw connection to the controller: collects what it's sent and can say a signed hello.
+function wire(fleet) {
+  const got = [];
+  const c = fleet.attach((m) => got.push(m));
+  const nonce = got.find((m) => m.t === "challenge")?.nonce;
+  return {
+    got, conn: c,
+    async hello(id, dev, { channel = "stable", nonceOverride, unsigned } = {}) {
+      const body = { t: "hello", app: fleet.app, host: id, channel, version: 0, keyring: 1 };
+      if (unsigned) return c.message(body);
+      const { sig } = await signDoc({ ...body, nonce: nonceOverride ?? nonce }, dev.privateKey, dev.publicJwk);
+      return c.message({ ...body, auth: { key: dev.publicJwk, sig } });
+    },
+    status: (id, extra) => c.message({ t: "status", host: id, channel: "stable", version: 0, keyring: 1, target: 0, state: "live", ...extra }),
+    manifests: () => got.filter((m) => m.t === "manifest").length,
+    refused: () => got.filter((m) => m.t === "error" && m.code === "unauthorized").map((m) => m.message),
+  };
+}
+{
+  const fleet = await FleetController.create({ app: "demo.tasks" });
+  const hb = await fleet.addBlob(tasks);
+  const devA = await generateDeviceKey(), devB = await generateDeviceKey();
+  const real = wire(fleet), other = wire(fleet), anon = wire(fleet), replay = wire(fleet), again = wire(fleet);
+  await real.hello("h1", devA);
+  await other.hello("h1", devB);                 // a second connection claiming h1 with another key
+  await anon.hello("h1", null, { unsigned: true });
+  await anon.status("h1", { state: "rejected", reason: "fake" });
+  await replay.hello("h1", devA, { nonceOverride: "a-different-connection's-nonce" });
+  await fleet.publish("stable", { main: hb });
+  check("SEC18 a second connection claiming a host id with a different key is refused; the real host still gets releases",
+    real.manifests() === 1 && other.manifests() === 0 && /different device key/.test(other.refused()[0] ?? ""), other.refused()[0]);
+  check("SEC19 an unsigned hello is refused and status from an unproven connection changes nothing",
+    anon.manifests() === 0 && /must be signed/.test(anon.refused()[0] ?? "") && fleet.hosts.get("h1").state !== "rejected" && fleet.convergence("stable").rejected === 0, anon.refused().join("; "));
+  check("SEC20 a hello signed for another connection's challenge is refused (no replay)", replay.manifests() === 0 && /challenge/.test(replay.refused()[0] ?? ""), replay.refused()[0]);
+  await again.hello("h1", devA);                 // the same device on a second link (e.g. reconnect overlap)
+  await fleet.publish("stable", { main: hb });
+  check("SEC21 the same device on two connections keeps both: neither replaces the other", real.manifests() === 2 && again.manifests() === 2);
+  real.conn.close();
+  check("SEC21b the host stays online while one of its connections is open", fleet.hosts.get("h1").online === true);
+
+  const closed = await FleetController.create({ app: "demo.tasks", enrollment: "closed" });
+  const x = wire(closed), y = wire(closed);
+  await x.hello("stranger", devA);
+  closed.enroll("known", devB.publicJwk);
+  await y.hello("known", devB);
+  check("SEC22 with closed enrollment only pre-enrolled hosts can join", /not enrolled/.test(x.refused()[0] ?? "") && closed.hosts.has("known") && !closed.hosts.has("stranger"));
+}
+
+// ---------- RT-06: convergence counts stay O(1) per report ----------
+{
+  // Reference: the old full scan. The running counts must always agree with it.
+  const scan = (fleet, channel) => {
+    const cur = fleet.channels.get(channel)?.current?.manifest, T = cur?.version, percent = cur?.rollout?.percent ?? 100;
+    const r = { hosts: 0, online: 0, live: 0, skipped: 0, rejected: 0, reverted: 0, pending: 0, offline: 0, oldKeyring: 0 };
+    for (const h of fleet.hosts.values()) {
+      if (h.channel !== channel) continue;
+      r.hosts++;
+      if (!h.online) { r.offline++; continue; }
+      r.online++;
+      if (h.keyring < fleet.keyring.keyring) r.oldKeyring++;
+      if (h.version === T && h.reverted === T) r.reverted++;
+      else if (h.version === T && (h.state === "live" || h.state === "keyring")) r.live++;
+      else if (h.target === T && h.state === "skipped" && h.percent === percent && percent < 100) r.skipped++;
+      else if (h.target === T && h.state === "rejected") r.rejected++;
+      else r.pending++;
+    }
+    return r;
+  };
+  const fleet = await FleetController.create({ app: "demo.tasks" });
+  const hb = await fleet.addBlob(tasks);
+  const dev = await generateDeviceKey();
+  const links = [];
+  let rnd = 7; const rand = (n) => (rnd = (rnd * 1103515245 + 12345) % 2147483648) % n;
+  for (let i = 0; i < 60; i++) { const w = wire(fleet); await w.hello("r" + i, dev, { channel: i % 3 ? "stable" : "beta" }); links.push(w); }
+  let mismatches = 0, steps = 0;
+  const same = () => { for (const ch of ["stable", "beta"]) { const a = scan(fleet, ch), b = fleet.convergence(ch); for (const k of Object.keys(a)) if (a[k] !== b[k]) return false; } return true; };
+  for (let step = 0; step < 400; step++) {
+    const op = rand(10), i = rand(links.length), cur = fleet.channels.get("stable")?.current?.manifest;
+    if (op === 0) await fleet.publish(rand(2) ? "stable" : "beta", { main: hb }, { percent: rand(2) ? 100 : 30 });
+    else if (op === 1 && cur) await fleet.setPercent("stable", 10 + rand(90));
+    else if (op === 2 && step % 50 === 0) await fleet.rotateReleaseKey();
+    else if (op === 3) { links[i].conn.close(); const w = wire(fleet); await w.hello("r" + i, dev, { channel: i % 3 ? "stable" : "beta" }); links[i] = w; }
+    else {
+      const v = cur?.version ?? 0, states = ["live", "skipped", "rejected", "reverted", "keyring"];
+      await links[i].status("r" + i, { channel: i % 3 ? "stable" : "beta", version: rand(2) ? v : 0, target: v, percent: cur?.rollout?.percent ?? 100, keyring: 1 + rand(fleet.keyring.keyring), state: states[rand(5)], reason: "r" + rand(3) });
+    }
+    steps++; if (!same()) mismatches++;
+  }
+  check("SEC23 running convergence counts match a full scan after 400 random reports, publishes, share changes, rotations and reconnects", mismatches === 0, `${mismatches} mismatches in ${steps} steps`);
+
+  const round = async (N) => {
+    const f = await FleetController.create({ app: "demo.tasks" });
+    const v = await f.publish("stable", { main: await f.addBlob(tasks) });
+    const ws = [];
+    for (let i = 0; i < N; i++) { const w = wire(f); await w.hello("h" + i, dev); ws.push(w); }
+    f.waitForConvergence("stable", 60000);
+    const t = performance.now();
+    for (let i = 0; i < N; i++) await ws[i].status("h" + i, { version: v, target: v, state: "live" });
+    return performance.now() - t;
+  };
+  const a = await round(2000), b = await round(8000);
+  check("SEC24 a round of status reports grows linearly with the fleet (x4 hosts costs well under x8)", b / a < 6, `2,000 hosts ${a.toFixed(0)} ms, 8,000 hosts ${b.toFixed(0)} ms (x${(b / a).toFixed(1)})`);
 }
 
 const failed = results.filter((x) => !x.pass).length;
