@@ -69,91 +69,98 @@ const t0 = Date.now();
 const marks = [];
 const mark = (name) => marks.push({ name, at: (Date.now() - t0) / 1000 });
 await page.goto(`http://127.0.0.1:${server.address().port}/?port=${port}`);
-await page.waitForFunction(() => window.stage?.swaps.length === 1, null, { timeout: 30000 });
+await page.waitForFunction(() => window.stage?.ready(), null, { timeout: 30000 });
 
 const S = (fn, ...a) => page.evaluate(([f, a]) => window.stage[f](...a), [fn, a]);
 async function ask(text) { // type the request into the bubble, then send it to the publisher
   await S("ask", ""); await S("typing", true);
   for (let i = 1; i <= text.length; i++) { await S("ask", text.slice(0, i)); await sleep(38); }
-  await sleep(300); await S("typing", false);
+  await sleep(250); await S("typing", false);
   say(text);
 }
-async function approve() { await S("step", 3, "active"); await sleep(900); say("y"); await S("step", 3, "ok", "approved"); }
+const OK = (t) => ["ok", "✓ " + t], ACT = (t) => ["act", t + "…"], BAD = (t) => ["bad", "✕ " + t];
+// The "Today" column is an illustration with cited figures, revealed while the real run happens on the right.
+let shownRows = 0;
+const revealRow = () => S("showRow", shownRows++);
+const fmtAll = (sw) => fmt(Math.max(...sw.map((s) => s.ms)));
 
-// ---- scene 0: the app is running and in use ----
-mark("intro");
-await S("title", "This app is running.<br>Let's change it live.");
-await S("steps", "");
-await sleep(800);
-for (const t of ["Buy milk", "Call mom", "Ship the demo"]) {
-  await page.click("#in-draft"); await page.keyboard.type(t, { delay: 45 }); await page.keyboard.press("Enter"); await sleep(250);
-}
-await page.click('[data-id="t:0"]');
-await sleep(1200);
-
-// ---- scene 1: a good change ----
+// ---- scene 1: a good change, shipped two ways ----
 mark("ask-1");
-await S("title", "Ask the AI<br>for a change");
+await S("title", "One AI change,<br>shipped two ways");
+await S("rows", [["1", "Commit and push", "then wait for the pipeline"], ["2", "CI build and tests", "2 min 49 s on average"], ["3", "Deploy and restart", "in-memory state is lost"], ["4", "Users get it", "after a reload or an update"]]);
+shownRows = 0;
+await sleep(700);
 await ask("Add a progress bar");
-await S("step", 1, "active");
+await S("status", [ACT("AI writing")]); await revealRow();
 await answerModel(1, "1-progress.md");
-await until(/✓ compiled/); await S("step", 1, "ok", "compiled"); await S("step", 2, "active"); await sleep(500);
-await until(/✓ shadow check passed/); await S("step", 2, "ok", "passed: every button clicked"); await sleep(500);
-await until(/approve\?/); await approve();
+await until(/✓ compiled/); await revealRow(); await S("status", [OK("AI wrote it"), ACT("safety check")]); await sleep(500);
+await until(/✓ shadow check passed/); await revealRow(); await S("status", [OK("AI wrote it"), OK("checked"), ACT("you approve")]); await sleep(500);
+await until(/approve\?/); await sleep(400); say("y");
 const live1 = await until(/LIVE v\d+ after (\d+) attempt\(s\): host swapped in ([\d.]+) ms\n\s+time: total \d+ ms = model \d+ \+ compile (\d+) \+ check (\d+)/);
-const swap1 = await page.evaluate(() => window.stage.swaps.at(-1));
+await page.waitForFunction(() => window.stage.devices.every((d) => d.build === 2), null, { timeout: 10000 });
+const swap1 = await page.evaluate(() => window.stage.swaps());
 mark("live-1");
-await S("step", 1, "ok", `compiled in ${live1[3]} ms`); await S("step", 2, "ok", `passed in ${live1[4]} ms`);
-await S("step", 4, "ok", `swapped in ${fmt(swap1.ms)} ms`);
-await S("phone", "live"); await S("badge", `${fmt(swap1.ms)} ms`, `no restart · all ${swap1.tasks} tasks kept`);
-await S("title", `<em>Live in ${fmt(swap1.ms)} ms.</em><br>No restart.`);
-await sleep(3000);
-await S("badge", null); await S("phone", "");
-await page.click('[data-id="t:1"]'); await sleep(1600);
+await revealRow();
+await S("status", [OK("AI wrote it"), OK("checked"), OK("approved"), OK(`live on both phones`)]);
+await S("phones", "live");
+for (const [i, sw] of swap1.entries()) await S("badge", i, `${fmt(sw.ms)} ms`, `no restart · ${sw.tasks} tasks kept`);
+await S("total", "≈ 3 min + a restart", "for the same change");
+await S("title", `<em>Live in ${fmtAll(swap1)} ms.</em><br>No restart, data kept.`);
+await sleep(3800);
 
-// ---- scene 2: a bad change is caught ----
+// ---- scene 2: the AI writes a bug ----
 mark("ask-2");
-await S("steps", ""); await S("ask", null);
+for (const i of [0, 1]) await S("badge", i, null);
+await S("phones", ""); await S("status", []);
 await S("title", "Now the AI<br>writes a bug");
+await S("rows", [["1", "Tests may not cover it", "it passes CI"], ["✕", "The bug reaches every user", "the app breaks in their hands", true], ["2", "Find it, roll back, redeploy", "57 min average recovery"]]);
+shownRows = 0;
 await ask("Add a Delete button");
-await S("step", 1, "active");
+await S("status", [ACT("AI writing")]); await revealRow();
 await answerModel(2, "2-delete-bad.md");
-await until(/✓ compiled/); await S("step", 1, "ok", "compiled"); await S("step", 2, "active"); await sleep(600);
+await until(/✓ compiled/); await S("status", [OK("AI wrote it"), ACT("safety check")]); await sleep(500);
 const caught = await until(/✗ check: (.*)/);
 const stateHeld = await page.evaluate(() => window.stage.state());
 mark("caught");
-await S("step", 2, "bad", "crashed when Delete was clicked");
-await S("step", 3, "off"); await S("step", 4, "off", "never reached the app");
-await S("phone", "held"); await S("badge", "Untouched", "the running app never saw the bug", "warn");
-await S("title", "<s>Bug caught.</s><br>App untouched.");
+await revealRow(); await revealRow();
+await S("status", [OK("AI wrote it"), BAD("crashed in the safety check, blocked")]);
+await S("phones", "held");
+for (const i of [0, 1]) await S("badge", i, "Untouched", "never saw the bug", "warn");
+await S("total", "≈ 1 hour broken", "for every user, on average");
+await S("title", "<s>Bug blocked.</s><br>No user saw it.");
 await sleep(4200);
 
-// ---- scene 3: the error goes back to the AI, the fix goes live ----
+// ---- scene 3: the crash goes back to the AI, the fix goes live ----
 mark("retry");
-await S("badge", null); await S("phone", "");
-await S("steps", ""); await S("step", 1, "active", "the crash goes back to the AI");
-await S("title", "The AI fixes<br>its own bug");
+for (const i of [0, 1]) await S("badge", i, null);
+await S("phones", "");
+await S("status", [ACT("crash sent back to the AI")]);
 await answerModel(3, "3-delete-fixed.md", /trapped/);
-await until(/✓ compiled/); await S("step", 1, "ok", "fixed and compiled"); await S("step", 2, "active"); await sleep(500);
-await until(/✓ shadow check passed/); await S("step", 2, "ok", "passed: every button clicked"); await sleep(500);
-await until(/approve\?/); await approve();
+await until(/✓ compiled/); await S("status", [OK("AI fixed it"), ACT("safety check")]); await sleep(400);
+await until(/✓ shadow check passed/); await S("status", [OK("AI fixed it"), OK("checked"), ACT("you approve")]); await sleep(400);
+await until(/approve\?/); await sleep(400); say("y");
 const live2 = await until(/LIVE v\d+ after (\d+) attempt\(s\): host swapped in ([\d.]+) ms/);
-const swap2 = await page.evaluate(() => window.stage.swaps.at(-1));
+await page.waitForFunction(() => window.stage.devices.every((d) => d.build === 3), null, { timeout: 10000 });
+const swap2 = await page.evaluate(() => window.stage.swaps());
 mark("live-2");
-await S("step", 4, "ok", `swapped in ${fmt(swap2.ms)} ms`);
-await S("phone", "live"); await S("badge", `${fmt(swap2.ms)} ms`, `fix live · ${swap2.tasks} tasks kept`);
-await S("title", `<em>Fixed and live<br>in ${fmt(swap2.ms)} ms.</em>`);
-await sleep(2400);
-await S("badge", null);
-await page.click('[data-id="del:2"]'); await sleep(2000);
+await S("status", [OK("AI fixed it"), OK("checked"), OK("approved"), OK("live on both phones")]);
+await S("phones", "live");
+for (const [i, sw] of swap2.entries()) await S("badge", i, `${fmt(sw.ms)} ms`, `fix live · ${sw.tasks} tasks kept`);
+await S("title", `<em>Fixed and live<br>in ${fmtAll(swap2)} ms.</em>`);
+await sleep(2200);
+await S("badge", 0, null);
+await page.click('#p0 [data-id="del:2"]'); await sleep(1600);
 const finalState = await page.evaluate(() => window.stage.state());
 
 // ---- end card ----
 mark("end");
-await S("end", `<h2>AI changes a running app<br><em>in milliseconds.</em></h2>
-<p>No CI/CD. No restart. Bad code never reaches it.</p>
-<div class="repo">Live Layer Protocol</div>`);
-await sleep(4000);
+await S("end", `<h2>Ship AI changes <em>live</em>,<br>without shipping its bugs.</h2>
+<table><tr><th></th><th class="t">TODAY</th><th class="l">WITH LLP</th></tr>
+<tr><td>A change goes live</td><td class="t">≈ 3 min + restart</td><td class="l">${fmtAll(swap1)} ms, no restart</td></tr>
+<tr><td>Your data</td><td class="t">lost on restart</td><td class="l">kept</td></tr>
+<tr><td>A buggy change</td><td class="t">reaches users, ≈ 1 h</td><td class="l">blocked before any device</td></tr></table>
+<div class="src2">Today: CircleCI 2024 averages. LLP: measured in this recording. Live Layer Protocol</div>`);
+await sleep(4500);
 mark("done");
 const video = await page.video().path();
 await ctx.close(); await browser.close(); server.close(); say("quit");
@@ -161,11 +168,12 @@ function fmt(ms) { return ms < 10 ? ms.toFixed(1) : String(Math.round(ms)); }
 
 // ---- checks: prove the run showed what the captions claim ----
 const fail = [];
-if (swap1.tasks !== 3) fail.push(`scene 1 kept ${swap1.tasks} tasks, expected 3`);
+if (swap1.map((s) => s.tasks).join() !== "3,4") fail.push(`scene 1 kept ${swap1.map((s) => s.tasks)} tasks, expected 3,4`);
 if (!/trapped/.test(caught[1])) fail.push(`scene 2 was not caught as a trap: ${caught[1]}`);
-if (stateHeld.build !== 2) fail.push(`the buggy layer reached the app (build ${stateHeld.build})`);
+if (stateHeld.some((d) => d.build !== 2)) fail.push(`the buggy layer reached a device (builds ${stateHeld.map((d) => d.build)})`);
 if (live2[1] !== "2") fail.push(`fix took ${live2[1]} attempts, expected 2`);
-if (finalState.n !== 2) fail.push(`after Delete the app has ${finalState.n} tasks, expected 2`);
+if (swap2.map((s) => s.tasks).join() !== "3,4") fail.push(`the fix kept ${swap2.map((s) => s.tasks)} tasks, expected 3,4`);
+if (finalState[0].n !== 2) fail.push(`after Delete the first phone has ${finalState[0].n} tasks, expected 2`);
 if (fail.length) { console.error("RUN DID NOT SHOW WHAT THE CAPTIONS SAY:\n" + fail.join("\n")); process.exit(1); }
 
 // ---- video -> gif + mp4 ----
@@ -175,8 +183,8 @@ const trim = ["-ss", String(Math.max(0, marks[0].at - 0.2))];
 ff([...trim, "-i", video, "-vf", "fps=30,scale=1280:-2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", out + ".mp4"]);
 ff([...trim, "-i", video, "-vf", "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", out + ".gif"]);
 writeFileSync(out + "-run.json", JSON.stringify({ recordedAt: new Date().toISOString(), swaps: [swap1, swap2],
-  scene1: { attempts: +live1[1], hostSwapMs: +live1[2], compileMs: +live1[3], checkMs: +live1[4] },
-  scene2: { caught: caught[1], appBuildWhileCaught: stateHeld.build, fixAttempts: +live2[1], hostSwapMs: +live2[2] },
+  scene1: { attempts: +live1[1], firstHostSwapMs: +live1[2], compileMs: +live1[3], checkMs: +live1[4] },
+  scene2: { caught: caught[1], deviceBuildsWhileCaught: stateHeld.map((d) => d.build), fixAttempts: +live2[1] },
   final: finalState, timeline: marks, publisherOutput: output }, null, 2) + "\n");
 if (args.includes("--keep-video")) console.log("raw video:", video); else rmSync(work, { recursive: true, force: true });
 console.log(`wrote ${out}.gif, ${out}.mp4, ${out}-run.json (${Math.round(marks.at(-1).at - marks[0].at)} s)`);

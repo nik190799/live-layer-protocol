@@ -6,16 +6,24 @@ writes the numbers it measured to `docs/demo-run.json`. It needs Playwright with
 
 What is real:
 
-- The four steps on the left (AI writes the code, safety check, approval, live) move when the real
-  `tools/ai-publish.mjs` prints that step, and the times under them are the ones it printed. Its full
-  output, including the diff and preview it shows the approver, is saved in `demo-run.json`.
-- The phone is a real Live Host (`host/llp-core.js`, layers in Web Workers) in Chromium, connected to
-  the publisher over WebSocket, verifying its signature. The tasks are typed and clicked into it.
+- The "With LLP" side is the recording. Its status line moves when the real `tools/ai-publish.mjs`
+  prints that step. The publisher's full output, including the diff and preview it shows the
+  approver, is saved in `demo-run.json`.
+- The two phones are two real Live Hosts (`host/llp-core.js`, layers in Web Workers) in Chromium. Each
+  has its own data and its own WebSocket to the publisher, and checks the signature. Their starting
+  tasks are set before they connect, and Delete is clicked on the first phone at the end.
 - Every number in a caption comes from that run: the swap time is what the host measured, the
   compile and check times are what the publisher printed.
-- The script fails, and writes no GIF, if the run did not show what the captions say (3 tasks kept,
-  the bad change caught as a trap while the app stayed on the previous build, the fix live on the
+- The script fails, and writes no GIF, if the run did not show what the captions say (3 and 4 tasks kept on the two phones,
+  the bad change caught as a trap while both phones stayed on the previous build, the fix live on the
   second attempt, Delete working afterwards).
+
+What is not a recording:
+
+- The "Today" column is an illustration with cited averages: a 2 min 49 s CI workflow and 57 min
+  recovery from a failed change (CircleCI 2024 State of Software Delivery; see docs/BENCHMARK.md),
+  plus the fact that a deploy restarts the process and loses in-memory state (measured locally in
+  docs/BENCHMARK.md). The page says it is an illustration.
 
 What is scripted:
 
