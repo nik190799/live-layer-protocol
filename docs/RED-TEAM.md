@@ -156,3 +156,59 @@ Severity is about adoption: **Critical** means a security reviewer would block L
 **Safe behaviour:** every message and download has a limit that fits its purpose.
 
 **Fix:** set `maxPayload` on every `WebSocketServer`, add a per-layer size cap to the manifest (signed), and refuse to download more bytes than that cap.
+
+## 4. State, data and correctness
+
+### ST-01 A rollback after a migration runs old code on new data (High, reasoned)
+
+**In plain words:** say version 2 changes how tasks are stored and migrates the saved data. Later, version 2 crashes on some input, and the host rolls that slot back to version 1. The data stays in version 2's format, and the schema marker still says 2. Version 1 then reads and writes data it doesn't understand, which can quietly corrupt it.
+
+**Where:** `revert()` in `host/llp-core.js` loads the previous hash without looking at `__schema.<slot>`.
+
+**Safe behaviour:** a host never runs code against a schema older than the one the data is in.
+
+**Fix:** when the previous version's `llp_schema()` differs from the stored schema, don't revert. Restart the current version instead (the existing no-previous-version path) and report it. Later, the spec could allow an optional `llp_migrate_down`.
+
+### ST-02 Server data lives only in memory (Critical for backends, reasoned; known gap)
+
+**In plain words:** the server host keeps every tenant's shared data and its list of already-answered calls in one process's memory. A restart loses all of it. After a restart, a phone that retries a payment call could also get it run a second time.
+
+**Safe behaviour:** shared state and the idempotency record are durable and survive a restart or a move to another machine.
+
+**Fix:** put a storage interface under `Store` for the server role (a log plus snapshots, or an existing database). Write the idempotency record in the same transaction as the call's writes.
+
+### ST-03 An outside effect can happen without its record (Medium, design)
+
+**In plain words:** in a server call, a capability such as `charge` runs between two transactions. If the step after the charge fails, the charge has already happened, but the order record is never written.
+
+**Safe behaviour:** every outside effect is recorded before it runs and reconciled after.
+
+**Fix:** pass the call's idempotency id to capability providers so payment APIs can deduplicate. Write a pending record before the effect and complete it afterwards, so a failed step leaves a record that can be found and fixed.
+
+### CO-01 One user's bad call rolls the server back for everyone (High, reasoned)
+
+**In plain words:** on the server, one layer instance serves every user of an app. If a single call fails or runs too long, the server rolls that layer back to the previous version for all users. One user with an unusual input, or a slow moment on the machine, changes which code everyone runs. That can undo a fix that just shipped.
+
+**Where:** `ServerLiveHost.invoke()` calls `revert()` on any failure of the current version.
+
+**Safe behaviour:** a single failed call gets an error. The server reverts only when failures cross a threshold across several users, and it tells the controller when it does.
+
+**Fix:** on the server role, answer `layer_failed` and restart the worker without reverting. Track failure rates per version and revert only above a threshold, reported as a fleet status so the controller can decide.
+
+### CO-02 After a fix, the old server code keeps answering for a while (Medium, reasoned)
+
+**In plain words:** to avoid breaking phones that haven't updated yet, the server keeps the previous version's code running for 30 seconds after a release. Each call says which version it wants, so during that window calls can still reach the old code, even when the new release exists to fix a security bug.
+
+**Safe behaviour:** a release can say that the old version must stop at once.
+
+**Fix:** add a signed `"overlap": 0` (or `"retire": [versions]`) field to the manifest, and have `committed()` honour it.
+
+### CO-03 Time limits are wall-clock (Low, known gap)
+
+A busy device can cut off an honest layer. The fix is already noted in the spec: use CPU-time accounting where the runtime offers it, and allow a per-manifest limit.
+
+### CO-04 State can grow without limit (Medium, known gap)
+
+**In plain words:** a layer can keep adding keys until the device or server runs out of memory or disk.
+
+**Fix:** set a quota per slot, counted in keys and bytes and declared in the manifest. Writes past it fail the call, the same way a trap does.
