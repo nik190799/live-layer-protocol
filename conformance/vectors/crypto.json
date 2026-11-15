@@ -1,0 +1,330 @@
+{
+ "sha256": [
+  {
+   "name": "empty input",
+   "hex": "",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+   "name": "abc",
+   "hex": "616263",
+   "sha256": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+  },
+  {
+   "name": "build/tasks.wasm",
+   "file": "tasks.wasm",
+   "sha256": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+  },
+  {
+   "name": "build/stats.wasm",
+   "file": "stats.wasm",
+   "sha256": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+  },
+  {
+   "name": "build/tasks_v2.wasm",
+   "file": "tasks_v2.wasm",
+   "sha256": "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053"
+  }
+ ],
+ "keyId": [
+  {
+   "name": "publisher",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "kid": "b161e98c275785ef"
+  },
+  {
+   "name": "root1",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "N6CoQT8RZZfh2n-tnhkIQNcHqbIYT2bIyk9o_jHeiP4",
+    "y": "X9yXWSilV0LwrPJE4YWkSanvBdUfcsfBAMHY1vrCmAo",
+    "crv": "P-256"
+   },
+   "kid": "f1c3eab65fffee28"
+  }
+ ],
+ "verify": [
+  {
+   "name": "valid signature",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": true
+  },
+  {
+   "name": "signature without base64 padding is still read",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": true
+  },
+  {
+   "name": "high-S form of a valid signature is accepted (no low-S rule)",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNRMf8uG1Z8MM5FRtvtAcSn/LDwltOohEHeSWyLoC6Mtdg==",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": true
+  },
+  {
+   "name": "same signature, edited document",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 8,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": false
+  },
+  {
+   "name": "same signature, other key",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "XhgQfy3tUt4WLWas2KqKJl-Ca7LcYHu38VZ2WbBp77w",
+    "y": "iBAlDCx6vagDDzsNf48XWjYnvc088WCwWknxbixiLj8",
+    "crv": "P-256"
+   },
+   "valid": false
+  },
+  {
+   "name": "DER-encoded signature is not the wire format",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "MEUCIEBIij+4KvWSFiKnb+b3KxTi/0KEDSP13wRtVNCrdjzUAiEAs4A0eCpg881urkkEv47WAJCq1Pi89o4NYV6n2vC/99s=",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": false
+  },
+  {
+   "name": "truncated signature",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/3",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": false
+  },
+  {
+   "name": "r = 0",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": false
+  },
+  {
+   "name": "key point not on the curve",
+   "doc": {
+    "app": "demo.tasks",
+    "version": 7,
+    "layers": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "order": [
+     "main"
+    ]
+   },
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "iBAlDCx6vagDDzsNf48XWjYnvc088WCwWknxbixiLj8",
+    "crv": "P-256"
+   },
+   "valid": false
+  },
+  {
+   "name": "signature is over canonical JSON, so key order on the wire doesn't matter",
+   "docJson": "{\"order\":[\"main\"],\"version\":7,\"layers\":{\"main\":\"13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27\"},\"app\":\"demo.tasks\"}",
+   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "jwk": {
+    "key_ops": [
+     "verify"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "g_9zTL1sGK4q8OjfevSzzgkKIGuybbRxdcSLFy6Onks",
+    "y": "UIXGbtuA7sR_HsR-ZtnxrcJvEJaMlhSrxUSl5ThMox4",
+    "crv": "P-256"
+   },
+   "valid": true
+  }
+ ],
+ "bucket": [
+  {
+   "host": "host-1",
+   "seed": "demo.tasks/stable",
+   "bucket": 8712,
+   "note": "uint32 of the first 4 bytes of sha256('demo.tasks/stable\\nhost-1'), mod 10000"
+  },
+  {
+   "host": "host-2",
+   "seed": "demo.tasks/stable",
+   "bucket": 1667
+  },
+  {
+   "host": "phone-ab12",
+   "seed": "demo.tasks/beta",
+   "bucket": 2757
+  },
+  {
+   "host": "",
+   "seed": "x",
+   "bucket": 8072
+  },
+  {
+   "host": "é😀",
+   "seed": "seed",
+   "bucket": 863
+  }
+ ]
+}

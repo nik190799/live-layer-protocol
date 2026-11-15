@@ -1,0 +1,2637 @@
+[
+ {
+  "name": "two languages render side by side; events, bound inputs and capabilities",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "7LWuJ13mKB/hyTvJLIzOym/nBlk7wY6oy759ZJqPj7nDqPgDq1XMT9JNvGQ3V7yZt6fDQOTTxKk9nsiB/c6CEw==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "expect",
+    "views": {
+     "main": {
+      "k": "col",
+      "a": {},
+      "c": [
+       {
+        "k": "heading",
+        "a": {},
+        "c": [
+         {
+          "k": "text",
+          "t": "Tasks"
+         }
+        ]
+       },
+       {
+        "k": "label",
+        "a": {},
+        "c": [
+         {
+          "k": "text",
+          "t": "0 of 0 done"
+         }
+        ]
+       },
+       {
+        "k": "row",
+        "a": {},
+        "c": [
+         {
+          "k": "input",
+          "a": {
+           "bind": "draft",
+           "placeholder": "Add a task…",
+           "submit": "add"
+          },
+          "c": []
+         },
+         {
+          "k": "button",
+          "a": {
+           "id": "add",
+           "style": "primary"
+          },
+          "c": [
+           {
+            "k": "text",
+            "t": "Add"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     "footer": {
+      "k": "card",
+      "a": {},
+      "c": [
+       {
+        "k": "row",
+        "a": {},
+        "c": [
+         {
+          "k": "label",
+          "a": {},
+          "c": [
+           {
+            "k": "text",
+            "t": "Progress (C layer)"
+           }
+          ]
+         },
+         {
+          "k": "big",
+          "a": {},
+          "c": [
+           {
+            "k": "text",
+            "t": "0%"
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "k": "progress",
+        "a": {
+         "value": "0"
+        },
+        "c": []
+       },
+       {
+        "k": "row",
+        "a": {},
+        "c": [
+         {
+          "k": "button",
+          "a": {
+           "id": "where"
+          },
+          "c": [
+           {
+            "k": "text",
+            "t": "Where am I?"
+           }
+          ]
+         },
+         {
+          "k": "button",
+          "a": {
+           "id": "buzz"
+          },
+          "c": [
+           {
+            "k": "text",
+            "t": "Buzz"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    },
+    "state": {
+     "__schema.main": 1,
+     "__schema.footer": 1
+    },
+    "recorded": [
+     "views.main",
+     "views.footer"
+    ]
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "Write spec"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "Ship demo"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "t:0"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "tasks.n": 2,
+     "tasks.0.text": "Write spec",
+     "tasks.0.done": 1,
+     "tasks.1.done": 0,
+     "draft": ""
+    },
+    "text": {
+     "footer": "Progress (C layer)|50%|Where am I?|Buzz"
+    },
+    "capsCalled": [
+     [
+      "haptic",
+      "20"
+     ]
+    ]
+   },
+   {
+    "op": "event",
+    "slot": "footer",
+    "id": "where"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "geo": "41.88, -87.63 (fixture)"
+    },
+    "capsCalled": [
+     [
+      "haptic",
+      "20"
+     ],
+     [
+      "geo",
+      ""
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "live swap keeps state, fetches only new blobs, and runs the schema migration",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "WJBpQS9TZBhKDjMFa4pTkamAbtXW989yHvdW47Osald0PCA/4doPSvKAamOKrV+mkbfBLbKyRrx+ZRL3AhYYhg==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "a"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "tx2XJF0G99+lwjTdbGb1FuJat7Rpj6sDxnS2yoq29e6UgOIwqhdKuxZub6Iiq7VAd9MKSOgtElFfOylp8R6xEQ==",
+    "expect": {
+     "ok": true,
+     "swapped": [
+      "main"
+     ],
+     "fetched": [
+      "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053"
+     ]
+    }
+   },
+   {
+    "op": "expect",
+    "version": 2,
+    "state": {
+     "tasks.0.text": "a",
+     "tasks.0.pri": 1,
+     "migrated.from": 1,
+     "__schema.main": 2
+    },
+    "running": {
+     "main": "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053",
+     "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+    }
+   }
+  ]
+ },
+ {
+  "name": "a layer that fails its health check is refused; the running version is untouched",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "lVcd1xvmv4vfzUZQyv9gpHuG/kea42R/FdutbYxO/Me+I4qm0ruZUJrYJSFk5wTuD0TlsWN6jSJ3/p5wyDMiYA==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "acecd4e57f8b98faeb5b3c7f2d9fd371424bc5e34ce059615747ceb4da2cef9a",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "G/PFdKavtGCGV16y6hL1lTveYSK0VhOiM1Hm8xP3iHd5Ozh+FIAjbbI2M4FqCyhGYgRrGjbHifnBagCTnAkPEA==",
+    "expect": {
+     "ok": false,
+     "code": "layer_failed"
+    }
+   },
+   {
+    "op": "expect",
+    "version": 1,
+    "running": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    }
+   }
+  ]
+ },
+ {
+  "name": "a trap during an event drops the event's writes and reverts to the newest earlier layer on the same schema",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "Yapsu+DARHO+E8ALB+ZCUdPsN6ayfSn7DsTGki8t6SxsLcULu+Ra9BMh979umTddjliwuPXjcDFmYj/CX01h6g==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "keep"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "kMM+krrNZyhNNlC3CsH1XAILmVEbO1bHKfL5O//Yo76VRqSk4wUCHfIqA7T2nYRH8xCQiwU9Rd3YmrY+v8N+5w==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 3,
+     "layers": {
+      "main": "c5dacc0d95ba7074f1fa6b5aba622614c38a0eb80e71a1d96aa4da18433e931a",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "yzA4aCwh2A+AhoM2dIeYCv5aRSpfw6wigQYSwbPPipLQ+bRPFpK06QCRJ/wFSsQH+BUyPF8wif94117U/0jxfg==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "expect",
+    "state": {
+     "__schema.main": 1
+    }
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "this traps"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "tasks.n": 1
+    },
+    "running": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+    },
+    "rollbacks": 1,
+    "version": 3
+   }
+  ]
+ },
+ {
+  "name": "a trap with nothing to revert to restarts the same version",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "c5dacc0d95ba7074f1fa6b5aba622614c38a0eb80e71a1d96aa4da18433e931a"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "ri7yVyDvqYsUf553CRCqW2VQYbC05B4Q/RUIx5iMk8VCslssz468IUppTnxEHiNubCpqZf0SGw6ZvB7Eu5iygA==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "x"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "tasks.n": null
+    },
+    "running": {
+     "main": "c5dacc0d95ba7074f1fa6b5aba622614c38a0eb80e71a1d96aa4da18433e931a"
+    },
+    "rollbacks": 0
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": ""
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "expect",
+    "text": {
+     "main": "Tasks|0 of 0 done|Add"
+    },
+    "recorded": [
+     "text.main"
+    ]
+   }
+  ]
+ },
+ {
+  "name": "an event that runs past the time limit is cut off, its writes dropped, and the slot reverted",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "JppxR2DOP/Jj5niXs+P1WL75XkGuEgpWzw2WhbXVMPS9qrQ0wrznFEGQAQbVJZe+u8X+jnH6AGY3HCGo0021BQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "55cb837cbab35518269dbae89b3bcac3e523cdda2bf92c91398a52f847e45e33"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "y6/EIpEwXMHeufbcMscBMUrxe9PuVKEYVAT/sreh0bONDhIYbizuQHGdcH/3hDuo7Y4cjVevTanLzhCMv53Cug==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "hang event"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "tasks.n": null
+    },
+    "running": {
+     "main": "1b1e612c43e4857793864e45af4b8a67da4e9af1307d0eb8534f49e6a2e72053"
+    },
+    "rollbacks": 1
+   }
+  ]
+ },
+ {
+  "name": "a migration that never finishes rejects the manifest",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "j4LASzceWOW+NYBGlXMXGvMR590JP/OLjgXYjnlSIb7ZFORqtBqqq1b3pqM658TPHavjv9vTtRV/UPUvNHgp4Q==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "40c61e92f822fb158ee871a1a67925b88b97f7473c694e4ed4fa80ade3e46cdf"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "dBUNw68O1uF/tR8TQY32D4S1Z1UUjugQ93vnZRymAPe5MDonVrWlEnWDl86nM2nXnAV/ND5PTP1n3DJksh4zvQ==",
+    "expect": {
+     "ok": false,
+     "code": "layer_failed"
+    }
+   },
+   {
+    "op": "expect",
+    "version": 1,
+    "state": {
+     "migrated.from": null,
+     "__schema.main": 1
+    }
+   }
+  ]
+ },
+ {
+  "name": "signatures and app pinning",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "dS+qxX/x7NXBjcybizHihSn0dgZRCCF/gjnQPDvz7jU59DhAIuNG/jAP+JfSYPwI5tlH6xhMtNfmEBBBQ1kCKQ==",
+    "expect": {
+     "ok": false,
+     "code": "untrusted"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "",
+    "expect": {
+     "ok": false,
+     "code": "untrusted"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "other.app",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "pv4xEN9O7JrIk6kmFtAcptHCTMJwkw3pDy52LGMkbb57I5AAfqaH2affUSA9J0txRIEZpa6jiRvBSdmFs3f01g==",
+    "expect": {
+     "ok": false,
+     "code": "wrong_app"
+    }
+   },
+   {
+    "op": "expect",
+    "version": 0
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "b4g5rpXzT3fu+GvLc+JBju91ppymgt+vtPTI0HauSsrWbuA6vaXbg6EHOrZqFQfuanTt7zxG4InmS+I7Fi1fNA==",
+    "expect": {
+     "ok": true
+    }
+   }
+  ]
+ },
+ {
+  "name": "a host with no trusted keys refuses everything (fail closed)",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "wZYGyWaeF9JenBFdx0oHjqiwVQjhpoAnmqRoiYU+rd6XZ7f8tFo0CvcaMIOmErYkKA/Oh4sXmu8YWfDBONQRhw==",
+    "expect": {
+     "ok": false,
+     "code": "untrusted"
+    }
+   }
+  ]
+ },
+ {
+  "name": "a host with no pinned app refuses signed manifests",
+  "host": {
+   "app": null,
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "9HMoV9MWourWkMuGclsA8F+FlMrJBiZeHExJVdongHMl72+NclGdPWusiwITiFtO3fAokyb2nXNw5QbVFnPvVg==",
+    "expect": {
+     "ok": false,
+     "code": "untrusted"
+    }
+   }
+  ]
+ },
+ {
+  "name": "versions: replay, equal, bad values, too far ahead",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 5,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "gaYZ9CRdu80/8QTPh13IWWy9DVWfxK8UK0a6c0q1U3UVcp4qqssG6Imfem3G0Ypc8dkYF1bjyxHGce9uVznwQQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 5,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "enFnAZyDCBDPh9kYAyWJS44SYtCFnkY7kyxVSKglrAvhBHKyWYdDxHEyg8S5mcyt0XHie98XCz1Iyc8WbKUXRA==",
+    "expect": {
+     "ok": false,
+     "code": "stale"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 4,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "TQTt/5xsKe/o7pk3SsQ02Atc6ck9FjqWb2/uK8gGxP8LefgfCfc2FPt2fAMbOM6nd+2SXByC5OkwAXennhX7Ww==",
+    "expect": {
+     "ok": false,
+     "code": "stale"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 0,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "tyTBdDr5NoTnsB8IpWmGZ3tFxSpdbijIgZyI9TeJSYTVLjuPRbSf6c+zBB6J/LauQ0Bj73Acv1oeJH7LefdhBA==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 6.5,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "qnDTXtQs+6MIgFvuVKNYHY21HBmswnyBuFdZTI6HC+qKrFdc7q4xe/gjVw6JkNPcNTFMYrOidmfnjfTvK4sSDQ==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 9007199254740992,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "76t8/vDcWIETnk3sGsvi8AjW0/d4vIWRDM63Xjcc3gGW1Vrat78UCblU3WuVe6PKhp1CiWNwij4tz1C3RuIXTw==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": "6",
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "Fi6JHmp9r8bF6H0/6lG5P+ec6loAE5PR+MnKHl9QPpmfsIOc0XQK6dGFcucU8lZQVi+Syp0RscjErfAWvrRyaw==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1798761600001,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "yULF6J7FFnK0Z+pOna3XeXySUmr1S6X/g9icvYs15zAlC85yph1Gz+0tm6qImB0sdyD9F5R0kU9vNwD1liabCA==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1798761600000,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "beLreEKSzm9kz1GDv82f5fOqkjYCZ+keCxLvSMXvnEl6Q1Xb5HHDn1Lhqylauw0+NkM8UF1fvF9VhbhmxiuiUg==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "expect",
+    "version": 1798761600000
+   }
+  ]
+ },
+ {
+  "name": "epochs order releases ahead of versions, up to the trusted keyring",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   },
+   "maxEpoch": 2
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 100,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "rnhZQmLm93/ElUFN7XRAiklMNm1w/nk9VXxHYh84FQ/djCEhY4L6VOCBF88cGqvPnajcfzY3P13rAOGNciZCmQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 3,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "epoch": 3
+    },
+    "sig": "CyuxHwdkCedIOUg9ezoFlpwwqn104cvM9dwE4R1caLqU/MtbjIN44mgCOfVSxvZ5h6qeNNJx0zcbefdFHwy2hw==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "epoch": -1
+    },
+    "sig": "k/UjCih21371y79tm2sS8OekFCgFnu5C9q2J3vF8pROer7h+NgiPMqV1hFgs9SeZEIWS4xZztL7AvziEi6uZYA==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "epoch": 1
+    },
+    "sig": "2QjrSuxZshSfmxUqUOlijwUjh0YCEi8Xnu756zizA793U/SAd8PnqPc20NFR9CS8497Gwuuye3e3XuFLBJ0+1g==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 200,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "epoch": 0
+    },
+    "sig": "aUR+JWCN3DaGRGy5At1mQ7ORBmFIus96MXrRDERmZWg0OTeStN0x2xNjzPA3LYfvciwJMFIu1CR0i0N7KmxTPQ==",
+    "expect": {
+     "ok": false,
+     "code": "stale"
+    }
+   },
+   {
+    "op": "expect",
+    "version": 1,
+    "epoch": 1
+   }
+  ]
+ },
+ {
+  "name": "a plain host trusts epoch 0 only",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "epoch": 1
+    },
+    "sig": "NZeZHzMT0g+bW5RvvVp5303gPZIanOmOSXt8SiLro/mHbG23IAlFcNky0gX8+LaLEa8ssCyohkYFl/pSd+yyeQ==",
+    "expect": {
+     "ok": false,
+     "code": "bad_version"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "epoch": 0
+    },
+    "sig": "sZIycbEbEuXcrrun9Dp4sZ0CfdJ3O3eDTvy3oPlYUuG/q2C6GNocfK4ggeQNOBNx3CdaLlBZcqhlUwNLlznvvw==",
+    "expect": {
+     "ok": true
+    }
+   }
+  ]
+ },
+ {
+  "name": "blobs: tampered, missing, content-addressed",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "nKjRTwm7Y509mczBTG83QgJaWLXha/qrXT/6DTVAUinaYV76vBe/Q4X9302WsL5mqqOQlTHwhcAw8IeHVhsxSg==",
+    "serve": {
+     "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27": "tasks_v2.wasm"
+    },
+    "expect": {
+     "ok": false,
+     "code": "blob"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "abababababababababababababababababababababababababababababababab"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "EU+jK0IlbXfTg2qSqWi5LOwFxa1uEH0kNbTJSO5Sd3SRu8CSxHr3oHLPuCQ29eFpNauQvkiG03Z+Ue9W+0w0jA==",
+    "expect": {
+     "ok": false,
+     "code": "blob"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "nCFz0kGO/8ePL48C2nRiadnOfU42Mom4YemKMdOBgFZsne0FGJU+Q24n7B7RmBjn3rlWGErfiQGFeODvO97Vvw==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": 42
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "TXz7C66ZittlUK8mKTpUj+zefUGddyGrqnAaMHt32GFrxALrDVIAPNr7mQBF2/WMZaPLyioHubI5EQIXadHd5w==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "o+K2njk/NZE88oB0wzxnsQE4hOXq1hAMZzsZDya0mHaBIKNIUz2jiaU63RVypHF4KWIc19BQslcaH597GdA1Zg==",
+    "expect": {
+     "ok": true,
+     "fetched": [
+      "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "name": "LLP 1 manifests are strict",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "llp": 2,
+     "keys": {},
+     "caps": {}
+    },
+    "sig": "8sp+FO3Uu5bsSehGUGtG/LZwzMSI7gq0Y8MC+nNd1kxZeXeXa10WPbuer/v62DBQb5Ol6QH3sbL/mi0WA/PjMA==",
+    "expect": {
+     "ok": false,
+     "code": "protocol"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "llp": 1,
+     "caps": {}
+    },
+    "sig": "1o/1hhM2SJ0SE3aW+GUHPipGl9JGJ4E6kAaDP2gzdeBX5Pa+pzVGFMc4b+L23fDgLXfpV3J0KsiSUideGuLNjA==",
+    "expect": {
+     "ok": false,
+     "code": "protocol"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "llp": 1,
+     "keys": {
+      "main": {
+       "own": [
+        "tasks.",
+        "draft"
+       ]
+      },
+      "footer": {
+       "own": [
+        "geo"
+       ],
+       "read": [
+        "tasks."
+       ]
+      }
+     }
+    },
+    "sig": "OcrmqZKNp4D3gVjmuwH6nUAng5I00pui6HtQuRyHLdlKyFPTQ5GzpKEvu4zLY6vUEsJ1kUKdJqdfM8d824Vr1w==",
+    "expect": {
+     "ok": false,
+     "code": "protocol"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "llp": 1,
+     "keys": {
+      "main": {
+       "own": [
+        "tasks.",
+        "draft"
+       ]
+      },
+      "footer": {
+       "own": [
+        "geo"
+       ],
+       "read": [
+        "tasks."
+       ]
+      }
+     },
+     "caps": {},
+     "color": "red"
+    },
+    "sig": "f6DZwi1yazJjP7stWGmVabrTvNc3yw5Oix8tqQeYenHpz1EDdRsokE7jJYh99SkmtXdiOOJUWWsJlucixTHdbA==",
+    "expect": {
+     "ok": false,
+     "code": "protocol"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "llp": 1,
+     "keys": {
+      "main": {
+       "own": [
+        "tasks.",
+        "draft"
+       ]
+      },
+      "footer": {
+       "own": [
+        "geo"
+       ],
+       "read": [
+        "tasks."
+       ]
+      }
+     },
+     "caps": {
+      "main": [
+       "haptic"
+      ]
+     },
+     "x-note": "ignored"
+    },
+    "sig": "JqaPO/qtSaDvcqsMZJsDf7pGqykIpAxYkBk2LkMGj5HWnAxIYmwTaD0bjo3R+QaWMyG6FCQlG9wruAZucH5IEA==",
+    "expect": {
+     "ok": true
+    }
+   }
+  ]
+ },
+ {
+  "name": "v0 manifests ignore unknown fields",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "color": "red"
+    },
+    "sig": "yhHWRQ6XOyNKBHWQ8/eCxJ8fCjE9ErQ9Jl4ag94Q4f1ICkw6M1uswLk5Bl6KJtAS+n//NQ4p2LaY9PG0wBqDQg==",
+    "expect": {
+     "ok": true
+    }
+   }
+  ]
+ },
+ {
+  "name": "declared keys: malformed declarations are refused",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "keys": {
+      "main": {
+       "own": [
+        "tasks."
+       ]
+      }
+     }
+    },
+    "sig": "OeNI+ww5C+l7xygqhdJnHrBrx3AnPcLsB0uO+v3ggl0z6i1k+T2auxL8xv+OEVsYT0Dn+jHF1QnhTMDixK/llA==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "keys": {
+      "main": {
+       "own": [
+        "tasks."
+       ]
+      },
+      "footer": {
+       "own": [
+        "tasks.0"
+       ]
+      }
+     }
+    },
+    "sig": "ipig9/53Eg1PckLch50exXw/J7T3zstKNYNX/qNo6/TtjLPlG6H3oRZtLj728fAwUyWXiTlYMnTlagzvB5AeZg==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "keys": {
+      "main": {
+       "own": [
+        "__schema.main"
+       ]
+      },
+      "footer": {}
+     }
+    },
+    "sig": "95kCVzHkvLhIjCo3O4uCnh3//qjVhyQLjq95rK+SHCKMJHWQLBP6k0SiaLl0OTpYYpyeE61jHodvm1KWDhEIqQ==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "keys": {
+      "main": {
+       "own": [
+        "__"
+       ]
+      },
+      "footer": {}
+     }
+    },
+    "sig": "oc5igiP1POAwMLUxxn3S2XKj4F0Mxq6B9qRMBkReIhNC6fQi4KmBinUlWDWg7p4QnmyraGsisRH/RzmPK5kHBQ==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "keys": {
+      "main": {
+       "own": [
+        ""
+       ]
+      },
+      "footer": {}
+     }
+    },
+    "sig": "ohwnjcBMpm1AyBsbEORbp6+RM4WyDgTvl8Vv9Xe6uaw4SgKUQMgE2v2sXJQYy4h3pC+ed2ErM1+2VDgABrG/iw==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "caps": {
+      "pay": [
+       "charge"
+      ]
+     }
+    },
+    "sig": "yfjtzqyfaoXP0OaA1QQbTBdT9cvGHXAPDsqR5xfYn30HLN4TkZF0BJSUHZXYftukPpCLWN5zd1WKByy3V2QSeg==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "private": [
+      "users/"
+     ]
+    },
+    "sig": "yjcAPCT0AJfFM3RwMvc0pXEyWWm5XYLnnA8xiXTq5rhB53rnzLGEQz3K8OZ09iW7Iq3Zt33SfZZM07jvkzuaDw==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "overlap": -1
+    },
+    "sig": "vqQHeyFr/cGJZzfUrXUnk1X2BslbwpIWwGdnHg8EE/iCTjos3i15DdJErv5XeFalxWnGSWdD3ZMZYSpg/p4mjw==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "hosts": {
+      "main": "edge"
+     }
+    },
+    "sig": "phQtUpZitNcuGvNWtf3gMi33lXFH3C1gLywWhXPGMYsE/NnvdX0TAUepA35qkfB0OeYvDfFlHGQwxP/9IWrzxQ==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "nope"
+     ]
+    },
+    "sig": "ppdqcrPxf7ZhSpQA5M1Omb4gbV/utBRvI6zVmmJMTtjivNCgywnV4J570wTZN8SCyRBPk6nWGPM3O8MOoRlF4w==",
+    "expect": {
+     "ok": false,
+     "code": "malformed"
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "keys": {
+      "main": {
+       "own": [
+        "tasks.",
+        "draft"
+       ]
+      },
+      "footer": {
+       "own": [
+        "geo"
+       ],
+       "read": [
+        "tasks."
+       ]
+      }
+     }
+    },
+    "sig": "4l0rQD/+4vhLKUcj18oAUCO16Koyep8qwXYO6xQSSoBG8eQYHDgxtgvFgO17bB2TwXnU26D+uJQrJCtlEqzI3Q==",
+    "expect": {
+     "ok": true
+    }
+   }
+  ]
+ },
+ {
+  "name": "declared keys: a slot sees only what it owns or reads, and can't write outside what it owns",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "yKhKRV/2o/YM1zJlqSwi5FP93QpltYsoQUCN59a/96ImQ6QkG+cb23QJbOAvl++adNSgWDRozL9TeTUooCoGGQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "mine"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "bind",
+    "key": "secret.note",
+    "value": "hidden"
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "snoop": "afade4c3f39fee1ab79a3fd89b74ad0336405b91ff6f33ec12cf54abefdd7d9b"
+     },
+     "order": [
+      "main",
+      "snoop"
+     ],
+     "keys": {
+      "main": {
+       "own": [
+        "tasks.",
+        "draft"
+       ]
+      },
+      "snoop": {
+       "own": [
+        "snoop."
+       ],
+       "read": [
+        "tasks."
+       ]
+      }
+     }
+    },
+    "sig": "wzdI4El/v30VHmVwewffe+FscA0Y22dIerTBfKZQdnL0fjExrJAc7szhDxx9eMxuZBaB3daunuPH2Oj5xYgtKA==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "expect",
+    "text": {
+     "snoop": "seen:mine||1.0"
+    }
+   },
+   {
+    "op": "event",
+    "slot": "snoop",
+    "id": "own"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "snoop.count": 1
+    }
+   },
+   {
+    "op": "event",
+    "slot": "snoop",
+    "id": "overwrite"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "tasks.0.text": "mine"
+    }
+   },
+   {
+    "op": "event",
+    "slot": "snoop",
+    "id": "schema"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "__schema.main": 1
+    }
+   }
+  ]
+ },
+ {
+  "name": "without declared keys, no layer may write host keys",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "snoop": "afade4c3f39fee1ab79a3fd89b74ad0336405b91ff6f33ec12cf54abefdd7d9b"
+     },
+     "order": [
+      "main",
+      "snoop"
+     ]
+    },
+    "sig": "ipwOhuyA2prxP2XfLNOKnlyjAeQKulJkt/2JN/QXJZW5XUyrOW58IXqHNlflBqCA8dfB6T7Dd0UAoWhBtGuFMQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "event",
+    "slot": "snoop",
+    "id": "schema"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "__schema.main": 1
+    }
+   }
+  ]
+ },
+ {
+  "name": "declared capabilities: an undeclared one is answered 'error: not granted'",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ],
+     "caps": {
+      "main": [
+       "haptic"
+      ]
+     }
+    },
+    "sig": "op7kAaktUm/QSpzOK6r5eJNEndquzMxrMs+J8x80a3CtuvMWrS49Z+BQXLDygXmQfDdHcl7Ghsyln78Y1XW4nw==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "event",
+    "slot": "footer",
+    "id": "where"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "geo": "error: not granted"
+    },
+    "capsCalled": []
+   },
+   {
+    "op": "event",
+    "slot": "footer",
+    "id": "buzz"
+   },
+   {
+    "op": "expect",
+    "capsCalled": []
+   }
+  ]
+ },
+ {
+  "name": "a capability the host doesn't offer is answered 'error: not granted'",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {}
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "N8iYRWWA2HO9306qcnzby+HOxHPK+idsUjPpA9Q7zB3uhiri+vasD68zi7BzEPhm7+thKcVQUDWhnzDatgkvVA==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "event",
+    "slot": "footer",
+    "id": "where"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "geo": "error: not granted"
+    }
+   }
+  ]
+ },
+ {
+  "name": "a capability that fails is answered 'error: <message>'",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "geo": {
+     "error": "gps off"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "36S/78lQkHI8bbYGnCz8sAbXI3pUmf8cP9l+ljmwWQu1WbTcC7Xg4giV8wd4G5IMeNJjRxn8WVUZ/il2adD3DQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "event",
+    "slot": "footer",
+    "id": "where"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "geo": "error: gps off"
+    }
+   }
+  ]
+ },
+ {
+  "name": "placement: a client fetches and runs only client slots",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "sync": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+     },
+     "order": [
+      "main"
+     ],
+     "hosts": {
+      "main": "client",
+      "sync": "server"
+     }
+    },
+    "sig": "aLyCoek7yJY3QVluEXE0PW6I708zsefd+klNGc446iFPoTqvO1Z14SllmSEmQeVcVq9MJWi4jiqotgE/bPA+sw==",
+    "expect": {
+     "ok": true,
+     "fetched": [
+      "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+     ]
+    }
+   },
+   {
+    "op": "expect",
+    "running": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+     "sync": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "a client drops layer writes to shared/ (the server owns them)",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "198582a15efb04e8eacaf735f2253225dba953d83944ce39f8e3a5f18e6ce772"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "NPghoOIWSP6iY3x+y6xpsYuuI27nqNyUnPLTpFv8EBHH3yVL0yyS9xUMon4dUC9xCKu1rjSoN5t49FJwDv5qvw==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "try-write"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "shared/tasks.n": null
+    }
+   },
+   {
+    "op": "bind",
+    "key": "shared/x",
+    "value": "1"
+   },
+   {
+    "op": "expect",
+    "state": {
+     "shared/x": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "slots missing from a new manifest are removed; order decides what renders",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "bid0OS4Hvh2Doz188PHtEnSSxZbqWJUQsC2VyhIZQgUl/ONMXucA+cWirhfqkORoNGf6Ok0H9veEcSH07OdGGQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "aQSGSqdVD4bg4qNGF3LX+QNLEFK/9KqyQyuKNGYjndcfvpGA13LQvGUH7046JyjF51XL91fV7H3TYFG3r/m7LQ==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "expect",
+    "running": {
+     "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+     "footer": null
+    },
+    "renders": [
+     "main"
+    ]
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 3,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "footer"
+     ]
+    },
+    "sig": "WE3psBjhh6rQVCUw+7/oUirG7FhZIUmgspdUKKIuIr+qpZZtqW8+p/5HBy2hk8avFMiz3bR2aZimi7ZLwym5pw==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "expect",
+    "renders": [
+     "footer"
+    ]
+   }
+  ]
+ },
+ {
+  "name": "a revert never runs old code on data in a newer schema",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "us9S8BxqT8gd3MzR/khUs923AUfd7NWlkrkp2LqiMR4Iw8QWE0hS3SOYXh4xIprVMpztqAgaVFOnrSjdF6cn5g==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 2,
+     "layers": {
+      "main": "55cb837cbab35518269dbae89b3bcac3e523cdda2bf92c91398a52f847e45e33"
+     },
+     "order": [
+      "main"
+     ]
+    },
+    "sig": "WXUU+iAqTO+anwrDjU9yYi4BhPPLQG1h9Y3WCUzLO2yMrhhPLEiXzVfZ294+f/VeSV0XS+YfenSGVqJwOZ287Q==",
+    "expect": {
+     "ok": true
+    }
+   },
+   {
+    "op": "expect",
+    "state": {
+     "__schema.main": 2
+    }
+   },
+   {
+    "op": "bind",
+    "key": "draft",
+    "value": "hang event"
+   },
+   {
+    "op": "event",
+    "slot": "main",
+    "id": "add"
+   },
+   {
+    "op": "expect",
+    "running": {
+     "main": "55cb837cbab35518269dbae89b3bcac3e523cdda2bf92c91398a52f847e45e33"
+    },
+    "rollbacks": 0,
+    "state": {
+     "tasks.n": null
+    }
+   }
+  ]
+ },
+ {
+  "name": "development mode runs unsigned manifests",
+  "host": {
+   "app": null,
+   "keys": [],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   },
+   "allowUnsigned": true
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "",
+    "expect": {
+     "ok": true
+    }
+   }
+  ]
+ },
+ {
+  "name": "signatures cover the canonical form: a relay that re-orders keys changes nothing",
+  "host": {
+   "app": "demo.tasks",
+   "keys": [
+    "publisher"
+   ],
+   "now": 1767225600000,
+   "caps": {
+    "haptic": {
+     "none": true
+    },
+    "geo": {
+     "result": "41.88, -87.63 (fixture)"
+    }
+   }
+  },
+  "steps": [
+   {
+    "op": "apply",
+    "manifest": {
+     "app": "demo.tasks",
+     "version": 1,
+     "layers": {
+      "main": "13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27",
+      "footer": "2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9"
+     },
+     "order": [
+      "main",
+      "footer"
+     ]
+    },
+    "sig": "QXWWruFDfryg7KApKqtjGWpLTuTvfDF6Kq6XEAKSmj4prCsM5xZRLwehQb61/EHP+ZPS7E8ssUQhmdFg226jMA==",
+    "expect": {
+     "ok": true
+    },
+    "manifestJson": "{\"order\":[\"main\",\"footer\"],\"layers\":{\"footer\":\"2e52105cd59d7623288ab6fddf6e45ea37896c3b4acde03a0b0dbad795b914a9\",\"main\":\"13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27\"},\"version\":1,\"app\":\"demo.tasks\"}"
+   }
+  ]
+ }
+]

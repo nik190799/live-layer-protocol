@@ -8,9 +8,15 @@ export const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).p
 export async function sha256(bytes) { return hex(await crypto.subtle.digest("SHA-256", bytes)); }
 
 // Canonical JSON: sorted keys, no whitespace — what gets signed.
+// This is RFC 8785 (JCS): keys sorted by UTF-16 code units, strings and numbers as JSON.stringify
+// writes them. Members whose value is undefined are left out, as JSON.stringify does. A string with
+// a lone surrogate has no canonical form (I-JSON, RFC 7493), so it throws and nothing that holds
+// one can be signed or verified.
+const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 export function canonical(v) {
   if (Array.isArray(v)) return "[" + v.map(canonical).join(",") + "]";
-  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonical(v[k])).join(",") + "}";
+  if (v && typeof v === "object") return "{" + Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => canonical(k) + ":" + canonical(v[k])).join(",") + "}";
+  if (typeof v === "string" && LONE.test(v)) throw new Error("canonical JSON: lone surrogate in a string");
   return JSON.stringify(v);
 }
 export const b64 = {
@@ -522,36 +528,40 @@ export class LiveHost {
   async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
     if (!this.headless && this.limits.isolation !== "inline") this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
-    if (!manifest || typeof manifest !== "object" || !manifest.layers || typeof manifest.layers !== "object") return this.reject(manifest ?? {}, "malformed manifest");
+    if (!manifest || typeof manifest !== "object" || !manifest.layers || typeof manifest.layers !== "object") return this.reject(manifest ?? {}, "malformed manifest", "malformed");
     if (!this.allowUnsigned) {
-      if (!this.trustedKeys?.length) return this.reject(manifest, "no trusted keys configured; refusing every manifest (fail closed)");
+      if (!this.trustedKeys?.length) return this.reject(manifest, "no trusted keys configured; refusing every manifest (fail closed)", "untrusted");
       let ok = false;
       for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k).catch(() => false)) { ok = true; break; }
-      if (!ok) return this.reject(manifest, "signature not trusted");
-      if (!this.app) return this.reject(manifest, "host has no app pinned; refusing (pass the app name when creating the host)");
+      if (!ok) return this.reject(manifest, "signature not trusted", "untrusted");
+      if (!this.app) return this.reject(manifest, "host has no app pinned; refusing (pass the app name when creating the host)", "untrusted");
     }
-    if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app");
+    if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app", "wrong_app");
     const pp = protocolProblem(manifest);
-    if (pp) return this.reject(manifest, pp);
+    if (pp) return this.reject(manifest, pp, "protocol");
     const vp = this.versionProblem(manifest);
-    if (vp) return this.reject(manifest, vp);
-    for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`);
+    if (vp) return this.reject(manifest, vp, vp.startsWith("stale ") ? "stale" : "bad_version");
+    for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`, "malformed");
 
     let rules;
     let caps;
     try {
+      for (const [slot, h] of Object.entries(manifest.layers)) if (typeof h !== "string" || !/^[0-9a-f]{64}$/.test(h)) throw new LayerError(`layers.${slot} must be a lowercase hex SHA-256`);
+      if (manifest.order !== undefined && !(Array.isArray(manifest.order) && manifest.order.every((s) => typeof s === "string" && Object.hasOwn(manifest.layers, s)))) throw new LayerError("order must be a list of slot names from layers");
       rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest);
       if (manifest.overlap !== undefined && !(Number.isSafeInteger(manifest.overlap) && manifest.overlap >= 0)) throw new LayerError("overlap must be a non-negative number of milliseconds");
-    } catch (e) { return this.reject(manifest, e.message); }
+    } catch (e) { return this.reject(manifest, e.message, "malformed"); }
 
     // The whole manifest is verified, but only the slots placed on this host are fetched and run.
-    const mine = Object.entries(manifest.layers).filter(([slot]) => this.placedHere(manifest, slot));
+    // Slots are staged in canonical (sorted) order: the signature covers the canonical form, not the
+    // order keys arrive in, so a relay must not be able to change what runs first.
+    const mine = Object.keys(manifest.layers).sort().map((slot) => [slot, manifest.layers[slot]]).filter(([slot]) => this.placedHere(manifest, slot));
     // Fetch only what we don't have (content addressing).
     const wanted = [...new Set(mine.map(([, h]) => h))].filter((h) => !this.blobs.has(h));
     for (const h of wanted) {
       const bytes = await fetchBlob(h);
-      if (!bytes || bytes.byteLength > this.limits.blobMb * 2 ** 20) return this.reject(manifest, `blob ${h.slice(0, 8)} is ${bytes ? Math.ceil(bytes.byteLength / 2 ** 20) + " MB, over the " + this.limits.blobMb + " MB limit" : "missing"}`);
-      if ((await sha256(bytes)) !== h) return this.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`);
+      if (!bytes || bytes.byteLength > this.limits.blobMb * 2 ** 20) return this.reject(manifest, `blob ${h.slice(0, 8)} is ${bytes ? Math.ceil(bytes.byteLength / 2 ** 20) + " MB, over the " + this.limits.blobMb + " MB limit" : "missing"}`, "blob");
+      if ((await sha256(bytes)) !== h) return this.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`, "blob");
       this.blobs.set(h, bytes);
     }
 
@@ -575,7 +585,7 @@ export class LiveHost {
       }
     } catch (e) {
       for (const s of staged) s.box.kill();
-      return this.reject(manifest, e.message);
+      return this.reject(manifest, e.message, "layer_failed");
     }
 
     // Atomic commit.
@@ -592,7 +602,7 @@ export class LiveHost {
     for (const [slot, s] of this.slots) s.box.rule = this.ruleFor(slot); // unchanged code can still get new key rules
     const keep = new Set(mine.map(([slot]) => slot));
     for (const s of [...this.slots.keys()]) if (!keep.has(s)) { this.retire(s, this.slots.get(s), prevVersion); this.slots.delete(s); }
-    this.order = (manifest.order ?? Object.keys(manifest.layers)).filter((s) => keep.has(s));
+    this.order = (manifest.order ?? Object.keys(manifest.layers).sort()).filter((s) => keep.has(s));
     this.app = manifest.app;
     this.version = manifest.version;
     this.epoch = manifest.epoch ?? 0;
@@ -607,9 +617,10 @@ export class LiveHost {
   retire(slot, cur, version) { this.recycle(cur.box); }
   committed(prev, next) {}
 
-  reject(manifest, reason) {
-    this.log("reject", `v${manifest.version} rejected: ${reason}`, { version: manifest.version });
-    return { ok: false, reason, version: manifest.version };
+  // code (SPEC section 5, nack.code): malformed | untrusted | wrong_app | protocol | bad_version | stale | blob | layer_failed
+  reject(manifest, reason, code) {
+    this.log("reject", `v${manifest.version} rejected: ${reason}`, { version: manifest.version, code });
+    return { ok: false, code, reason, version: manifest.version };
   }
 
   // ---------- running ----------

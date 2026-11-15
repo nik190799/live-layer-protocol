@@ -3,8 +3,10 @@
   "version": "1.0.0",
   "description": "Live Layer Protocol: stream signed WebAssembly layers into a running app, no CI/CD",
   "scripts": {
-    "test": "node test/run.mjs && node test/security.mjs && node test/sandbox.mjs && node test/service.mjs && node test/live-e2e.mjs && node test/ai-loop.mjs && node test/fleet.mjs && node test/hosts.mjs && node case-studies/run.mjs --no-write",
+    "test": "node test/run.mjs && node conformance/run-js.mjs && node test/security.mjs && node test/sandbox.mjs && node test/service.mjs && node test/live-e2e.mjs && node test/ai-loop.mjs && node test/fleet.mjs && node test/hosts.mjs && node case-studies/run.mjs --no-write",
     "test:core": "node test/run.mjs",
+    "test:conformance": "node conformance/run-js.mjs",
+    "test:go": "cd impl/go && go vet ./... && go run ./cmd/llp-conformance ../../conformance && cd ../.. && node test/interop-go.mjs",
     "test:sandbox": "node test/sandbox.mjs",
     "test:service": "node test/service.mjs",
     "test:live": "node test/live-e2e.mjs",
