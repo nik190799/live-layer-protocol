@@ -14,7 +14,7 @@ export async function loadKey(dir = "keys") {
   }
   const kp = await crypto.subtle.generateKey(ECDSA, true, ["sign", "verify"]);
   const publicJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
-  writeFileSync(`${dir}/publisher.json`, JSON.stringify({ private: await crypto.subtle.exportKey("jwk", kp.privateKey), public: publicJwk }));
+  writeFileSync(`${dir}/publisher.json`, JSON.stringify({ private: await crypto.subtle.exportKey("jwk", kp.privateKey), public: publicJwk }), { mode: 0o600 });
   writeFileSync(`${dir}/publisher.pub.json`, JSON.stringify(publicJwk));
   return { privateKey: kp.privateKey, publicJwk };
 }

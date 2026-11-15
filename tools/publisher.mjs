@@ -22,7 +22,7 @@ if (existsSync("keys/publisher.json")) {
   const kp = await crypto.subtle.generateKey(ECDSA, true, ["sign", "verify"]);
   privateKey = kp.privateKey;
   publicJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
-  writeFileSync("keys/publisher.json", JSON.stringify({ private: await crypto.subtle.exportKey("jwk", kp.privateKey), public: publicJwk }));
+  writeFileSync("keys/publisher.json", JSON.stringify({ private: await crypto.subtle.exportKey("jwk", kp.privateKey), public: publicJwk }), { mode: 0o600 });
   writeFileSync("keys/publisher.pub.json", JSON.stringify(publicJwk));
 }
 

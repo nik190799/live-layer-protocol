@@ -46,12 +46,13 @@ class TenantLog {
   }
   // -> { kv: Map, idem: Map(key -> result) }
   load() {
-    const kv = new Map(), idem = new Map();
+    const kv = new Map(), idem = new Map(), fx = new Map();
     const snap = join(this.dir, "snapshot.json");
     if (existsSync(snap)) {
       const s = JSON.parse(readFileSync(snap, "utf8"));
       for (const [k, v] of s.kv) kv.set(k, v);
       for (const [k, r] of s.idem) idem.set(k, r);
+      for (const [k, r] of s.fx ?? []) fx.set(k, r);
     }
     const log = join(this.dir, "log.jsonl");
     if (existsSync(log)) {
@@ -67,24 +68,26 @@ class TenantLog {
         for (const [k, v] of e.set ?? []) kv.set(k, v);
         for (const k of e.del ?? []) kv.delete(k);
         for (const [k, r] of e.idem ?? []) idem.set(k, r);
+        for (const [k, r] of e.fx ?? []) fx.set(k, r);
         this.lines++;
       }
     }
     while (idem.size > this.store.idemKeep) idem.delete(idem.keys().next().value);
-    return { kv, idem };
+    while (fx.size > this.store.idemKeep) fx.delete(fx.keys().next().value);
+    return { kv, idem, fx };
   }
   // One commit: state changes plus the idempotency records of the calls they answer, in one line,
   // so a reply is never sent for a call whose effects or record could be lost.
   append(entry) {
-    if (!entry.set?.length && !entry.del?.length && !entry.idem?.length) return;
+    if (!entry.set?.length && !entry.del?.length && !entry.idem?.length && !entry.fx?.length) return;
     const file = join(this.dir, "log.jsonl");
     const fd = openSync(file, "a");
     try { appendFileSync(fd, JSON.stringify(entry) + "\n"); if (this.store.fsync) fsyncSync(fd); } finally { closeSync(fd); }
     this.lines++;
   }
   needsCompaction() { return this.lines >= this.store.compactEvery; }
-  compact(kv, idem) {
-    writeAtomic(join(this.dir, "snapshot.json"), JSON.stringify({ kv: [...kv], idem: [...idem] }), this.store.fsync);
+  compact(kv, idem, fx = new Map()) {
+    writeAtomic(join(this.dir, "snapshot.json"), JSON.stringify({ kv: [...kv], idem: [...idem], fx: [...fx] }), this.store.fsync);
     const log = join(this.dir, "log.jsonl");
     if (existsSync(log)) truncateSync(log, 0);
     this.lines = 0;

@@ -21,7 +21,7 @@ export function connectServer(host, url, { app, token, watch, retryMs = 250, que
   function open() {
     ws = new WebSocketImpl(url);
     ws.onopen = () => {
-      send({ t: "hello", app, version: host.version, have: [...host.blobs.keys()], token, watch });
+      send({ t: "hello", llp: 1, app, version: host.version, have: [...host.blobs.keys()], token, watch });
       link.online = true;
       for (const e of outbox.values()) send(e.msg);   // resend anything queued or unanswered
       onlineWaiters.splice(0).forEach((f) => f());
@@ -34,7 +34,7 @@ export function connectServer(host, url, { app, token, watch, retryMs = 250, que
       else if (m.t === "shared") await host.applyShared(m);
       else if (m.t === "manifest") {
         const r = await host.apply(m.manifest, m.sig, (h) => new Promise((res) => { blobs.set(h, res); send({ t: "want", hashes: [h] }); }));
-        send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, reason: r.reason });
+        send(r.ok ? { t: "ack", version: r.version, ms: r.ms, running: host.running() } : { t: "nack", version: r.version, reason: r.reason, running: host.running() });
         for (const f of versionWaiters) f();
       } else if (m.t === "reply") onReply(m);
       else if (m.t === "error") host.log("error", `server: ${m.code}: ${m.message}`);
@@ -65,7 +65,7 @@ export function connectServer(host, url, { app, token, watch, retryMs = 250, que
       const done = () => { versionWaiters.delete(done); clearTimeout(t); res(); }; // after the next manifest, swapped or refused
       const t = setTimeout(() => { versionWaiters.delete(done); res(); }, upgradeWaitMs);
       versionWaiters.add(done);
-      send({ t: "hello", app, version: host.version, have: [...host.blobs.keys()], token, watch }); // ask for the latest manifest
+      send({ t: "hello", llp: 1, app, version: host.version, have: [...host.blobs.keys()], token, watch }); // ask for the latest manifest
     });
   }
   function finish(id) { const e = outbox.get(id); if (e) { clearTimeout(e.timer); outbox.delete(id); } }
