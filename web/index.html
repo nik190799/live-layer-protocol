@@ -950,6 +950,8 @@ if (!myPriv) {
   store.set("llp.key", JSON.stringify({ priv: await crypto.subtle.exportKey("jwk", kp.privateKey), pub: myPub }));
 }
 const keyId = (jwk) => (jwk.x || "").slice(0, 8);
+// A fingerprint long enough to compare between two screens (SEC-05): 80 bits of SHA-256 of the key.
+const fingerprint = async (jwk) => (await sha256(new TextEncoder().encode(`${jwk.x}.${jwk.y}`))).slice(0, 20).match(/.{4}/g).join(" ");
 const pinned = JSON.parse(store.get("llp.trusted") || "[]");
 const trusted = [myPub, ...pinned];
 
@@ -1101,8 +1103,7 @@ async function onRemote(data) {
   if (!data?.manifest || data.manifest.version <= host.version) return; // our own echo or old news
   const pubId = keyId(data.pub);
   if (!trusted.some((k) => keyId(k) === pubId)) {
-    if (!pinned.length) { pinned.push(data.pub); trusted.push(data.pub); store.set("llp.trusted", JSON.stringify(pinned)); logLine("net", `Trusting publisher key ${pubId} from device ${data.from} (first seen)`); }
-    else return askTrust(data);
+    return askTrust(data); // never trust a key automatically, not even the first one seen (SEC-05)
   }
   if (!builds.has(data.manifest.version)) builds.set(data.manifest.version, ++build);
   logLine("net", `Manifest arrived from device ${data.from}`);
@@ -1112,11 +1113,12 @@ async function onRemote(data) {
     return b64.dec(snap.data().data);
   });
 }
-function askTrust(data) {
+async function askTrust(data) {
   const box = $("trust-box");
-  box.innerHTML = '<div class="trust"><b></b><span class="hint"></span><div class="row-actions"><button class="btn" id="trust-yes">Trust this key</button><button class="btn ghost" id="trust-no">Ignore</button></div></div>';
-  box.querySelector("b").textContent = `Device ${data.from} pushed code signed with key ${keyId(data.pub)}`;
-  box.querySelector(".hint").textContent = "This host only runs code from keys it trusts. Trust it if that device is yours.";
+  box.innerHTML = '<div class="trust"><b></b><span class="hint"></span><span class="mono fp"></span><div class="row-actions"><button class="btn" id="trust-yes">Trust this key</button><button class="btn ghost" id="trust-no">Ignore</button></div></div>';
+  box.querySelector("b").textContent = `Device ${data.from} pushed code signed with a key this host doesn't trust`;
+  box.querySelector(".fp").textContent = "Key fingerprint: " + await fingerprint(data.pub);
+  box.querySelector(".hint").textContent = "Trust it only if this fingerprint matches the one shown as \"This device's key\" on that device.";
   $("trust-yes").onclick = () => { pinned.push(data.pub); trusted.push(data.pub); store.set("llp.trusted", JSON.stringify(pinned)); box.replaceChildren(); onRemote(data); };
   $("trust-no").onclick = () => { box.replaceChildren(); logLine("reject", `Ignored code signed by untrusted key ${keyId(data.pub)}`); };
 }
@@ -1127,6 +1129,9 @@ function paintPeers(list) {
   const box = $("devices"); box.replaceChildren();
   const me = document.createElement("div"); me.className = "d"; me.innerHTML = '<span>This device</span><span class="mono" id="me-ver"></span>'; me.lastChild.textContent = "build " + (builds.get(host.version) ?? "—") + " · " + (host.slots.get("main")?.hash || "").slice(0, 8);
   box.appendChild(me);
+  const fp = document.createElement("div"); fp.className = "d"; fp.innerHTML = "<span>This device's key</span><span class=\"mono\"></span>";
+  fingerprint(myPub).then((f) => { fp.lastChild.textContent = f; });
+  box.appendChild(fp);
   for (const p of list) {
     if (p.self || !p.state?.device) continue;
     const d = document.createElement("div"); d.className = "d";

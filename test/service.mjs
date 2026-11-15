@@ -1,6 +1,7 @@
 // Service tests: the daemon as a long-lived OS service.
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, copyFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, statSync } from "node:fs";
+import { sha256, signManifest, b64 } from "../host/llp-core.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,18 +17,19 @@ let daemon;
 async function start() {
   daemon = spawn("node", [join(root, "service/llpd.mjs")], { env, stdio: ["ignore", "pipe", "pipe"] });
   daemon.out = ""; daemon.stdout.on("data", (d) => (daemon.out += d)); daemon.stderr.on("data", (d) => (daemon.out += d));
-  for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${PORT}/status`); return; } catch { await sleep(100); } }
+  for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${PORT}/`); return; } catch { await sleep(100); } }
   throw new Error("daemon did not start:\n" + daemon.out);
 }
 const stop = () => new Promise((r) => { daemon.on("exit", r); daemon.kill("SIGTERM"); });
 const llp = (...a) => { try { return execFileSync("node", [join(root, "service/llp.mjs"), ...a], { env, encoding: "utf8" }); } catch (e) { return e.stdout + e.stderr; } };
 const B = (f) => join(root, "build", f);
 
-function ui(app) {
+const token = () => readFileSync(join(DATA, "keys", "ui-token"), "utf8").trim();
+function ui(app, tok = token()) {
   return new Promise((res) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ui?app=${app}`, { headers: {} });
-    const c = { ws, last: null, fx: [], send: (m) => ws.send(JSON.stringify(m)) };
-    ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.t === "render") c.last = m; if (m.t === "fx") c.fx.push(m); };
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ui?token=${tok}&app=${app}`, { headers: {} });
+    const c = { ws, last: null, fx: [], bound: [], errors: [], send: (m) => ws.send(JSON.stringify(m)) };
+    ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.t === "render") c.last = m; if (m.t === "fx") c.fx.push(m); if (m.t === "bound") c.bound.push(m.key); if (m.t === "error") c.errors.push(m.msg); };
     ws.onopen = () => setTimeout(() => res(c), 100);
   });
 }
@@ -65,6 +67,48 @@ check("S9 live swap after restart, open client updates in place, state kept", ou
 
 const st = JSON.parse(llp("status"));
 check("S10 status reports apps, versions and layers", st.apps?.[0]?.name === "demo.tasks" && st.apps[0].layers.main);
+
+// SEC-04: the UI needs this user's token, and it can only set keys bound to an input on screen.
+const tf = join(DATA, "keys", "ui-token");
+const noTok = await Promise.all([fetch(`http://127.0.0.1:${PORT}/`), fetch(`http://127.0.0.1:${PORT}/status`), fetch(`http://127.0.0.1:${PORT}/?token=wrong`)]);
+const page = await (await fetch(llp("open").trim())).text();
+check("S11 the UI page and status need the UI token, which only this user can read",
+  noTok.every((r) => r.status === 403) && page.includes(token()) && (statSync(tf).mode & 0o077) === 0, `${noTok.map((r) => r.status)}; mode ${(statSync(tf).mode & 0o777).toString(8)}`);
+const anon = await ui("demo.tasks", "wrong"); await sleep(100);
+check("S12 a UI socket without the token gets nothing and is closed", !anon.last && anon.errors.length === 1 && anon.ws.readyState >= 2, anon.errors[0]);
+c.send({ t: "bind", key: "tasks.n", value: "999" }); c.send({ t: "bind", key: "__schema.main", value: "0" }); c.send({ t: "bind", key: "draft", value: "typed" });
+await sleep(150);
+check("S13 the UI can only set keys bound to an input on the current screen", c.bound.join() === "draft", `accepted: ${c.bound.join()}`);
 c.ws.close(); await stop();
+const kv = new Map(JSON.parse(readFileSync(join(DATA, "apps", "demo.tasks", "state.json"), "utf8")));
+check("S14 refused UI writes never reach saved state", kv.get("tasks.n") !== "999" && kv.get("__schema.main") !== "0" && kv.get("draft") === "typed");
+
+// SEC-03: a key trusted for one app can't update another.
+const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
+const mate = await crypto.subtle.generateKey(ECDSA, true, ["sign", "verify"]);
+const mateFile = join(DATA, "mate.json");
+writeFileSync(mateFile, JSON.stringify(await crypto.subtle.exportKey("jwk", mate.publicKey)));
+out = llp("trust", mateFile);
+const usage = /usage: llp trust/.test(out);
+out = llp("trust", mateFile, "team.notes");
+await start();
+async function pushAs(key, app) {
+  const bytes = new Uint8Array(readFileSync(B("tasks.wasm"))); const h = await sha256(bytes);
+  const manifest = { app, version: Date.now(), layers: { main: h }, order: ["main"] };
+  const sig = await signManifest(manifest, key);
+  return new Promise((res) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${PORT}/publish`);
+    ws.onopen = () => ws.send(JSON.stringify({ t: "manifest", manifest, sig }));
+    ws.onmessage = (e) => { const m = JSON.parse(e.data); if (m.t === "want") ws.send(JSON.stringify({ t: "blob", hash: h, data: b64.enc(bytes) })); if (m.t === "ack" || m.t === "nack") { ws.close(); res(m); } };
+  });
+}
+const own = await pushAs(mate.privateKey, "team.notes"), other = await pushAs(mate.privateKey, "demo.tasks");
+check("S15 a teammate's key trusted for one app can update that app but not another", usage && own.t === "ack" && other.t === "nack" && /not trusted/.test(other.reason), `team.notes: ${own.t}; demo.tasks: ${other.t} ${other.reason ?? ""}`);
+await stop();
+writeFileSync(join(DATA, "keys", "trusted.json"), JSON.stringify([await crypto.subtle.exportKey("jwk", mate.publicKey)]));
+await start();
+const legacy = await pushAs(mate.privateKey, "demo.tasks");
+check("S16 an older trust file (one list for every app) still works, with a warning", legacy.t === "ack" && /trusts 1 key\(s\) for every app/.test(daemon.out), (daemon.out.match(/warning:.*/) || [""])[0].slice(0, 90));
+await stop();
 console.log(`\n${results.filter(Boolean).length}/${results.length} passed  (data dir ${DATA})`);
 process.exit(results.every(Boolean) ? 0 : 1);

@@ -99,11 +99,12 @@ pre { font: 12.5px/1.6 var(--f-mono); background: var(--bg); padding: 12px; bord
 <script>
 const $ = (id) => document.getElementById(id);
 const app = new URLSearchParams(location.search).get("app");
+const token = "__LLP_UI_TOKEN__"; // filled in by llpd when it serves this page
 const cid = Math.random().toString(36).slice(2);
 let ws, lastVersion = 0;
 
 function connect() {
-  ws = new WebSocket(`ws://${location.host}/ui` + (app ? `?app=${encodeURIComponent(app)}` : ""));
+  ws = new WebSocket(`ws://${location.host}/ui?token=${token}` + (app ? `&app=${encodeURIComponent(app)}` : ""));
   ws.onopen = () => { $("chip").className = "chip"; $("chip-t").textContent = app ? "live" : "service running"; };
   ws.onclose = () => { $("chip").className = "chip off"; $("chip-t").textContent = "service offline, retrying"; setTimeout(connect, 1500); };
   ws.onmessage = (ev) => {
@@ -118,7 +119,7 @@ function connect() {
 }
 async function listApps(list) {
   const nav = $("apps"); nav.replaceChildren();
-  for (const a of list) { const l = document.createElement("a"); l.href = "?app=" + encodeURIComponent(a.name); l.textContent = a.name; if (a.name === app) l.setAttribute("aria-current", "page"); nav.appendChild(l); }
+  for (const a of list) { const l = document.createElement("a"); l.href = `?token=${token}&app=` + encodeURIComponent(a.name); l.textContent = a.name; if (a.name === app) l.setAttribute("aria-current", "page"); nav.appendChild(l); }
   $("empty").hidden = list.length > 0 || !!app;
 }
 const send = (m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
@@ -167,7 +168,7 @@ function logLine(e) {
   if (e.kind === "swap" && e.ms != null) $("f-ms").textContent = e.ms + " ms";
 }
 async function poll() {
-  try { const r = await (await fetch("/status")).json(); listApps(r.apps); $("chip").className = "chip"; $("chip-t").textContent = "service running on " + r.device; }
+  try { const r = await (await fetch("/status?token=" + token)).json(); listApps(r.apps); $("chip").className = "chip"; $("chip-t").textContent = "service running on " + r.device; }
   catch { $("chip").className = "chip off"; $("chip-t").textContent = "service offline"; }
 }
 poll(); setInterval(poll, 3000);

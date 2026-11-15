@@ -38,6 +38,10 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 | FL-03 lost hosts | Fixed | `sweepOffline()` plus a `lost` count. |
 | OB-01 running hashes in reports | Fixed | `running` in status, ack and nack. |
 | AI-05 old output in the prompt | Fixed, partial | The live source is framed as data. Diff highlighting of comments isn't built. |
+| SEC-03 per-app trust on the local service | Fixed | `trusted.json` is `{app: [keys]}` and `llp trust <key> <app>` needs an app. Keys in an older plain-list file (or under `"*"`) still count for every app, with a warning. |
+| SEC-04 local service UI writes | Fixed | Behaviour change: the UI page, its socket and `/status` need the token in `<data>/keys/ui-token` (0600); `llp open` prints the link. `bind` only sets keys bound to an input on the current screen. `/publish` is still open to local programs, but only signed releases get in. |
+| SEC-05 web demo pairing | Fixed | Behaviour change: the demo always asks before trusting a key, even the first, and shows an 80-bit fingerprint to compare with "This device's key" on the other screen (browser test B8). |
+| FL-02 restarted host and revoked keys | Fixed | Behaviour change: `fleet-host.mjs` keeps its trust dir by default (`trust/` beside the pinned keyring); `--no-trust-dir` opts out. An unreadable saved file stops the host. Freshness (SEC-01) remains opt-in. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -172,7 +176,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** stop saving root keys in `FleetController.save()` and sign keyrings with an offline tool. Support keystore and PKCS#11 signers. Document custody (who holds what, and how many signatures are needed) in the spec.
 
-### SEC-03 A trusted key on the local service can update every app (Medium, reasoned)
+### SEC-03 A trusted key on the local service can update every app (Medium, reasoned) — FIXED
+
+**Fixed:** `keys/trusted.json` is `{app: [keys]}`, and `llp trust <key> <app>` needs an app name. An older file that is a plain list, or keys under `"*"`, still count for every app, and `llpd` logs a warning so existing setups keep running. Tests S15 and S16 in `test/service.mjs`.
 
 **In plain words:** `llp trust` adds a teammate's key for all apps on the device, not just the app they work on.
 
@@ -180,7 +186,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** store trusted keys per app in `llpd` (`keys/trusted.json` becomes `{app: [keys]}`), and have `llp trust` take an app name.
 
-### SEC-04 The local service accepts writes to any state key (Medium, reasoned)
+### SEC-04 The local service accepts writes to any state key (Medium, reasoned) — FIXED
+
+**Fixed:** `llpd` creates a UI token in `<data>/keys/ui-token` (mode 0600). The UI page, the `/ui` socket and `/status` refuse requests without it, and `llp open` prints the link. A `bind` is applied only when its key is bound to an input on the current screen. Tests S11 to S14. Behaviour change: bookmarks of `http://127.0.0.1:7710/` need the new link from `llp open`. `/publish` stays open to local programs, since it accepts only signed releases.
 
 **In plain words:** `llpd`'s UI socket lets a client set any key directly, not only the keys the app shows as input boxes. Any program on the same computer can connect and change saved data, including internal keys.
 
@@ -190,7 +198,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** accept `bind` only for keys in the latest render's `binds`. Require a per-session token (written to a file only this user can read) to open the UI socket.
 
-### SEC-05 The web demo trusts the first key it sees (Medium, reasoned)
+### SEC-05 The web demo trusts the first key it sees (Medium, reasoned) — FIXED
+
+**Fixed:** `onRemote` never trusts a key by itself. The prompt shows the key's fingerprint (80 bits, five groups of four hex digits), and the devices list shows "This device's key" to compare against. Browser test B8 (it fails on the old page). Behaviour change: the first push between two new devices now needs one tap to trust.
 
 **In plain words:** on a device that hasn't trusted anyone yet, the browser demo automatically trusts whichever key wrote the first shared release. Whoever gets there first wins.
 
@@ -304,7 +314,9 @@ At that growth rate, one round of reports from a million devices would take hour
 
 **Fix:** the server keeps every channel's current server slots live, keyed by version (see SPEC section 11).
 
-### FL-02 A restarted host can trust a revoked key again (High, known gap)
+### FL-02 A restarted host can trust a revoked key again (High, known gap) — FIXED
+
+**Fixed:** `fleet-host.mjs` keeps a trust dir by default (`trust/` beside the pinned keyring, or `--trust-dir`). A saved keyring or device key that exists but can't be read stops the host with exit code 2. `--no-trust-dir` turns it off for tests and throwaway hosts. Tests W6 (default trust dir refuses the revoked key; `--no-trust-dir` would accept it) and W7. Freshness notes (SEC-01) remain opt-in with `--freshness`. Behaviour change: hosts started without `--trust-dir` now write to `trust/` beside their keyring.
 
 **In plain words:** a host that restarts without its saved key list goes back to the keys it was installed with, including ones that have since been revoked, until it reconnects.
 
