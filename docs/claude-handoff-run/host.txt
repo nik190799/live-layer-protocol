@@ -1,0 +1,327 @@
+· swap: v1794704428348 live — 2 layer(s) swapped in 38.7 ms
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 0 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 0 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 1 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+[ ] Buy milk  (#t:0)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 1 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+[ ] Buy milk  (#t:0)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 2 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+[ ] Buy milk  (#t:0)
+[ ] Call mom  (#t:1)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 2 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+[ ] Buy milk  (#t:0)
+[ ] Call mom  (#t:1)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 3 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+[ ] Buy milk  (#t:0)
+[ ] Call mom  (#t:1)
+[ ] Pay rent  (#t:2)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  1 of 3 done
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+[x] Buy milk  (#t:0)
+[ ] Call mom  (#t:1)
+[ ] Pay rent  (#t:2)
+[ Clear done ]  (#clear)
+    Progress (C layer)
+    33%
+███░░░░░░░ 33%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+· swap: v1794704428349 live — 1 layer(s) swapped in 7.9 ms
+
+────────────────────────────────────────────────
+== Tasks ==
+  1 of 3 done · 0 starred
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ☆ ]  (#s:0)
+  [x] Buy milk  (#t:0)
+  [ ☆ ]  (#s:1)
+  [ ] Call mom  (#t:1)
+  [ ☆ ]  (#s:2)
+  [ ] Pay rent  (#t:2)
+[ Clear done ]  (#clear)
+    Progress (C layer)
+    33%
+███░░░░░░░ 33%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  1 of 3 done · 1 starred
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:2)
+  [ ] Pay rent  (#t:2)
+  [ ☆ ]  (#s:0)
+  [x] Buy milk  (#t:0)
+  [ ☆ ]  (#s:1)
+  [ ] Call mom  (#t:1)
+[ Clear done ]  (#clear)
+    Progress (C layer)
+    33%
+███░░░░░░░ 33%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 2 done · 1 starred
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:1)
+  [ ] Pay rent  (#t:1)
+  [ ☆ ]  (#s:0)
+  [ ] Call mom  (#t:0)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+· swap: v1794704428350 live — 1 layer(s) swapped in 4.1 ms
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 2 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:1)
+  [ ] Pay rent  (#t:1)
+  [ × ]  (#d:1)
+  [ ☆ ]  (#s:0)
+  [ ] Call mom  (#t:0)
+  [ × ]  (#d:0)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 2 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:1)
+  [ ] Pay rent  (#t:1)
+  [ × ]  (#d:1)
+  [ ☆ ]  (#s:0)
+  [ ] Call mom  (#t:0)
+  [ × ]  (#d:0)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 3 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:1)
+  [ ] Pay rent  (#t:1)
+  [ × ]  (#d:1)
+  [ ☆ ]  (#s:0)
+  [ ] Call mom  (#t:0)
+  [ × ]  (#d:0)
+  [ ☆ ]  (#s:2)
+  [ ] Book dentist  (#t:2)
+  [ × ]  (#d:2)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 3 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ☆ ]  (#s:0)
+  [ ] Call mom  (#t:0)
+  [ × ]  (#d:0)
+  2 hidden by the filter
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 3 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:1)
+  [ ] Pay rent  (#t:1)
+  [ × ]  (#d:1)
+  [ ☆ ]  (#s:0)
+  [ ] Call mom  (#t:0)
+  [ × ]  (#d:0)
+  [ ☆ ]  (#s:2)
+  [ ] Book dentist  (#t:2)
+  [ × ]  (#d:2)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 2 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:0)
+  [ ] Pay rent  (#t:0)
+  [ × ]  (#d:0)
+  [ ☆ ]  (#s:1)
+  [ ] Book dentist  (#t:1)
+  [ × ]  (#d:1)
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+· swap: v1794704428351 live — 1 layer(s) swapped in 5.7 ms
+
+────────────────────────────────────────────────
+== Tasks ==
+  0 of 2 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:0)
+  [ ] Pay rent  (#t:0)
+  [ × ]  (#d:0)
+  [ ☆ ]  (#s:1)
+  [ ] Book dentist  (#t:1)
+  [ × ]  (#d:1)
+░░░░░░░░░░ 0%
+    Progress (C layer)
+    0%
+░░░░░░░░░░ 0%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+
+────────────────────────────────────────────────
+== Tasks ==
+  1 of 2 done · 1 starred
+<Filter tasks…>  (bind filter)
+  <Add a task…>  (bind draft)
+  [ Add ]  (#add)
+  [ ★ ]  (#s:0)
+  [ ] Pay rent  (#t:0)
+  [ × ]  (#d:0)
+  [ ☆ ]  (#s:1)
+  [x] Book dentist  (#t:1)
+  [ × ]  (#d:1)
+█████░░░░░ 50%
+[ Clear done ]  (#clear)
+    Progress (C layer)
+    50%
+█████░░░░░ 50%
+  [ Where am I? ]  (#where)
+  [ Buzz ]  (#buzz)
+────────────────────────────────────────────────
+· stream closed

@@ -4,7 +4,7 @@
 // Usage: node test/ai-loop.mjs
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -147,6 +147,35 @@ check("A12 with no key the stub backend proves the same loop (compile error, ret
   /stub/.test(demo.out) && /✗ compile/.test(demo.out) && /LIVE v\d+ after 2 attempt/.test(demo.out) && /1 task left/.test(lastFrame(h2.out)) && /Buy milk/.test(lastFrame(h2.out)),
   (demo.out.match(/time: [^\n]*/) || [""])[0]);
 demo.kill(); h2.kill();
+
+// ---- A13–A15: handoff backend, no key: the "model" answers through files, as a chat session would ----
+const work3 = mkdtempSync(join(tmpdir(), "llp-ai-handoff-"));
+const hd = join(work3, "handoff");
+const ho = proc([join(ROOT, "tools/ai-publish.mjs"), "--port", "7794", "--backend", "handoff", "--handoff-dir", hd, "--source", join(ROOT, "layers/tasks-as/app.ts"), `footer=${join(ROOT, "build/stats.wasm")}`], work3, { ANTHROPIC_API_KEY: "" });
+await ho.waitFor(/streaming on/);
+const h3 = proc([join(ROOT, "host/node-host.mjs"), "ws://localhost:7794", join(work3, "keys/publisher.pub.json")], work3);
+await h3.waitFor(/Tasks/);
+await run(h3, "set draft Buy milk", "click main add"); await sleep(200);
+const answer = async (id, text) => {
+  const f = join(hd, `${id}.reply.md`);
+  const t = Date.now(); while (!existsSync(join(hd, `${id}.request.json`))) { if (Date.now() - t > 8000) return null; await sleep(20); }
+  const req = JSON.parse(readFileSync(join(hd, `${id}.request.json`), "utf8"));
+  writeFileSync(f + ".tmp", text); renameSync(f + ".tmp", f);
+  return req;
+};
+const unbalanced = withHeading("Handoff").replace("    end();\n    for (let i = 0; i < n; i++) {", "    for (let i = 0; i < n; i++) {");
+ho.cmd("rename the heading to Handoff");
+const q1 = await answer("001", reply(unbalanced));
+const q2 = await answer("002", reply(withHeading("Handoff"), "Closed the row."));
+check("A13 handoff writes the exact request (system prompt, live source, the person's words) and waits for a reply file",
+  q1 && /stateless/.test(q1.system) && /rename the heading to Handoff/.test(q1.messages[0].content) && existsSync(join(hd, "001.request.md")) && /waiting for the model/.test(ho.out));
+check("A14 a flawed handoff reply is rejected by the shadow check and the rejection is written into the next request",
+  /✗ check: .*unbalanced/.test(ho.out) && q2 && q2.messages.length === 3 && /unbalanced UI/.test(q2.messages[2].content));
+await ho.waitFor(/approve\?/);
+const h3m = h3.out.length; ho.cmd("y"); await h3.waitFor(/== Handoff ==/, h3m);
+check("A15 the fixed handoff reply is signed, streamed and swapped into the running app with state kept",
+  /LIVE v\d+ after 2 attempt/.test(ho.out) && /== Handoff ==/.test(lastFrame(h3.out)) && /Buy milk/.test(lastFrame(h3.out)));
+ho.kill(); h3.kill();
 
 const passed = results.filter(Boolean).length;
 console.log(`\n${passed}/${results.length} AI loop checks passed`);
