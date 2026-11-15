@@ -91,7 +91,7 @@ const frame = page.frameLocator("#today");
 await frame.locator("#draft").waitFor();
 S = (fn, ...a) => page.evaluate(([f, a]) => window.stage[f](...a), [fn, a]);
 await S("how", ciMode === "github" ? "git push → GitHub Actions → restart" : "git commit → CI on this machine → restart");
-const fmtS = (ms) => ms < 1000 ? `${(ms / 1000).toFixed(2)} s` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)} min ${String(Math.floor(ms / 1000) % 60).padStart(2, "0")} s`;
+const fmtS = (ms) => ms < 1000 ? `${(ms / 1000).toFixed(2)} s` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)}m ${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}s`;
 function fmt(ms) { return ms < 10 ? ms.toFixed(1) : String(Math.round(ms)); }
 async function ask(text) {
   await S("ask", ""); await S("typing", true);
@@ -110,16 +110,21 @@ async function waitTodayReload(before) {
 }
 const LLP_STEPS = ["AI writes the change", "Safety check", "Approve", "Live swap"];
 const TODAY_STEPS = ["AI writes the change", "Commit and push", ciMode === "github" ? "CI: GitHub Actions" : "CI: tests on this machine", "Deploy: restart server", "Open pages reload"];
+const ciName = (n = "") => /playwright/i.test(n) ? "installing the test browser" : /node --test/.test(n) ? "running the tests" : /checkout/.test(n) ? "checking out the code" : /setup-node/.test(n) ? "setting up Node" : /set up job/i.test(n) ? "starting a runner" : n;
+let stepChain = Promise.resolve(); // pipeline events are shown in the order they happened
 function todayStepper(offset = 0) { // map pipeline progress onto the today steps list
-  todayStep.cb = async (name, d) => {
+  const show = async (name, d) => {
     try {
       if (name === "commit") { await S("step", "t", offset + 0, "ok", "same AI, same change"); await S("step", "t", offset + 1, "act"); }
-      if (name === "ci") { await S("step", "t", offset + 1, "ok", "pushed"); await S("step", "t", offset + 2, "act", d?.name ?? ""); }
+      if (name === "ci") { await S("step", "t", offset + 1, "ok", "pushed"); await S("step", "t", offset + 2, "act", ciName(d?.name)); }
       if (name === "ci-failed") await S("step", "t", offset + 2, "bad", "tests failed");
       if (name === "deploy") { await S("step", "t", offset + 2, "ok", "tests passed"); await S("step", "t", offset + 3, "act", "stopping the old server"); }
     } catch {}
   };
+  todayStep.show = show;
+  todayStep.cb = (name, d) => (stepChain = stepChain.then(() => todayStep.show(name, d)));
 }
+const settled = () => stepChain;
 
 // The LLP side of one request: returns when the change is live (or blocked) on the device.
 async function llpChange(prompt, replies) {
@@ -174,7 +179,7 @@ await S("phone", "l", "live"); await S("badge", "l", `${fmtS(llp1.liveAt - s1)}`
 mark("llp-live-1");
 await S("title", "<em>LLP is live.</em><br>Today is still in CI.");
 await sleep(1500);
-const t1 = await fastForward(today1);
+const t1 = await fastForward(today1); await settled();
 if (!t1.ci.ok) throw new Error("today CI failed on the good change: " + JSON.stringify(t1.ci));
 await S("step", "t", 3, "ok", `server down ${t1.downtime} ms`); await S("step", "t", 4, "act", "the page reloads");
 const reload1 = await waitTodayReload(loads1);
@@ -204,7 +209,7 @@ mark("llp-live-2");
 await S("title", "<em>LLP blocked the bug.</em><br>Today's CI passes it.");
 await sleep(1200);
 await page.click('#screen [data-id="del:2"]');
-const t2 = await fastForward(today2);
+const t2 = await fastForward(today2); await settled();
 if (!t2.ci.ok) throw new Error("today CI failed on the Delete change (it should pass: no test covers Delete): " + JSON.stringify(t2.ci));
 await S("step", "t", 2, "ok", "tests passed (none cover Delete)");
 await S("step", "t", 3, "ok", `server down ${t2.downtime} ms`); await S("step", "t", 4, "act", "the page reloads");
@@ -224,8 +229,8 @@ await S("steps", "t", ["A user hits the bug", "Revert and push", TODAY_STEPS[2],
 await S("step", "t", 0, "bad", "app crashed on Delete");
 todayStepper();
 const loads3 = await page.evaluate(() => window.stage.todayLoads());
-todayStep.cb = ((cb) => async (n, d) => { if (n !== "commit") return cb(n, d); await S("step", "t", 1, "act", "git revert"); })(todayStep.cb);
-const t3 = await fastForward(today.ship("app-v2.js", "Revert: the Delete button crashes"));
+todayStep.show = ((show) => async (n, d) => { if (n !== "commit") return show(n, d); await S("step", "t", 1, "act", "git revert"); })(todayStep.show);
+const t3 = await fastForward(today.ship("app-v2.js", "Revert: the Delete button crashes")); await settled();
 await S("step", "t", 3, "ok", `server down ${t3.downtime} ms`); await S("step", "t", 4, "act", "the page reloads");
 const reload3 = await waitTodayReload(loads3);
 await S("step", "t", 4, "ok", "back to the old version");

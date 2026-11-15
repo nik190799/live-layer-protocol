@@ -160,7 +160,7 @@ function tick() {
   for (const s of ["t", "l"]) { const c = clocks[s]; if (c?.running) $("clock-" + s).textContent = fmtS(Date.now() - c.start); }
   requestAnimationFrame(tick);
 }
-function fmtS(ms) { if (ms < 1000) return `${(ms / 1000).toFixed(2)} s`; if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`; const m = Math.floor(ms / 60000); return `${m} min ${String(Math.floor(ms / 1000) % 60).padStart(2, "0")} s`; }
+function fmtS(ms) { if (ms < 1000) return `${(ms / 1000).toFixed(2)} s`; if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`; return `${Math.floor(ms / 60000)}m ${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}s`; }
 tick();
 const sideEl = (s, part) => $(`${part}-${s}`);
 const phoneOf = (s) => $(s === "t" ? "phone-t" : "phone-l");
