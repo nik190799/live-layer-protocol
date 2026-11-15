@@ -64,6 +64,8 @@ export class TrustStore {
   async update(doc, sigs) {
     const cur = this.doc;
     if (doc?.app !== cur.app) return { ok: false, reason: "keyring for a different app" };
+    // The same keyring again (a server host's agents share one store, one per channel): nothing to do.
+    if (doc.keyring === cur.keyring && canonical(doc) === canonical(cur)) return { ok: true, keyring: doc.keyring, same: true };
     if (!(doc.keyring > cur.keyring)) return { ok: false, reason: `stale keyring ${doc.keyring} ≤ ${cur.keyring}` };
     if (doc.keyring !== cur.keyring + 1) return { ok: false, reason: `keyring ${doc.keyring} skips ${cur.keyring + 1}; send the chain in order` };
     try { checkRole(doc.root, "root"); checkRole(doc.release, "release"); } catch (e) { return { ok: false, reason: e.message }; }
@@ -101,9 +103,12 @@ export class FleetAgent {
   // freshness note, refuses releases older than the one the note names, and reports
   // "freshness-expired" when its note runs out. "refuse" also won't install anything without a valid
   // note (so a fresh install can't be handed an old release from a cache). Default: off.
-  constructor({ host, id, channel, trust, send = () => {}, deviceKey = null, freshness = null }) {
+  // relay (a server host, SPEC 10.5): apply every share of a release, whatever the percent, because
+  // the relay's own clients decide whether they are in it; and pass a re-signed release of the version
+  // already running (a share change) to host.resigned(manifest, sig), so the relay can forward it.
+  constructor({ host, id, channel, trust, send = () => {}, deviceKey = null, freshness = null, relay = false }) {
     if (!id) throw new Error("FleetAgent needs a stable host id");
-    Object.assign(this, { host, id, channel, trust, send, deviceKey, freshness });
+    Object.assign(this, { host, id, channel, trust, send, deviceKey, freshness, relay });
     this.fresh = null;
     this.nonce = null;
     host.trustedKeys = trust.releaseKeys();
@@ -190,8 +195,11 @@ export class FleetAgent {
     this.target = m.version;
     this.percent = m.rollout?.percent ?? 100;
     // A share increase re-signs the same version; hosts already on it have nothing to do.
-    if (cmp === 0) return this.done(this.state === "reverted" ? "reverted" : "live", "already on this version");
-    if (!(await inRollout(m, this.id))) return this.done("skipped", `not in the ${m.rollout.percent}% share`);
+    if (cmp === 0) {
+      if (this.relay && this.host.resigned) { const r = await this.host.resigned(m, msg.sig); if (r && !r.ok) return this.done("rejected", r.reason); }
+      return this.done(this.state === "reverted" ? "reverted" : "live", "already on this version");
+    }
+    if (!this.relay && !(await inRollout(m, this.id))) return this.done("skipped", `not in the ${m.rollout.percent}% share`);
     let r;
     try { r = await this.host.apply(m, msg.sig, fetchBlob); } catch (e) { r = { ok: false, reason: e.message }; }
     return r.ok ? this.done("live", `${r.ms} ms`, { ms: r.ms }) : this.done("rejected", r.reason);

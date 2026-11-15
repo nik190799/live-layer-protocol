@@ -58,14 +58,17 @@ export class FleetController {
   // ---------- releases ----------
   channel(name) { if (!this.channels.has(name)) this.channels.set(name, { current: null, history: [] }); return this.channels.get(name); }
 
-  async publish(channel, layers, { order, percent = 100, seed } = {}) {
+  // fields: other signed manifest fields to carry (hosts, keys, caps, private, personal, overlap, llp,
+  // x-*), e.g. { hosts: { sync: "server" } } for a release with a server half (SPEC 10.5).
+  async publish(channel, layers, { order, percent = 100, seed, fields = {} } = {}) {
     for (const h of Object.values(layers)) if (!this.blobs.has(h)) throw new Error(`blob ${h.slice(0, 8)} was never added`);
+    for (const k of ["app", "channel", "epoch", "version", "layers", "order", "rollout"]) if (k in fields) throw new Error(`fields can't set ${k}`);
     // epoch = the keyring that signs it: a key rotation starts a new epoch, so one bad version from a
     // leaked key can be outranked by rotating (RT-02).
-    const manifest = { app: this.app, channel, epoch: this.keyring.keyring, version: ++this.version, layers, order: order ?? Object.keys(layers) };
+    const manifest = { ...fields, app: this.app, channel, epoch: this.keyring.keyring, version: ++this.version, layers, order: order ?? Object.keys(layers) };
     if (percent < 100) manifest.rollout = { percent, seed: seed ?? `${this.app}/${channel}` };
     const ch = this.channel(channel);
-    ch.history.push({ version: manifest.version, layers, order: manifest.order });
+    ch.history.push({ version: manifest.version, layers, order: manifest.order, fields });
     await this.sign(channel, manifest);
     this.onEvent({ kind: "publish", channel, version: manifest.version, percent });
     return manifest.version;
@@ -85,7 +88,7 @@ export class FleetController {
     const h = this.channel(channel).history;
     if (h.length < 2) throw new Error(`no earlier release on ${channel}`);
     const prev = h[h.length - 2];
-    const v = await this.publish(channel, prev.layers, { order: prev.order });
+    const v = await this.publish(channel, prev.layers, { order: prev.order, fields: prev.fields });
     this.onEvent({ kind: "rollback", channel, version: v, to: prev.version });
     return v;
   }

@@ -7,10 +7,12 @@
 //   llp open [app]                               print the link to the UI (it carries this user's UI token)
 //   llp key                                      print this device's public key (to share)
 //   llp status                                   what llpd is running
+//   llp export <app> | llp erase <app>           this device's saved state for an app: print it, or clear it
 import { readFileSync, writeFileSync, watch, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { sha256, signManifest, b64 } from "../host/llp-core.js";
+import { dataKeyFromEnv, fileVault } from "../host/at-rest.mjs";
 
 const PORT = +(process.env.LLP_PORT || 7710);
 const DATA = process.env.LLP_DATA ||
@@ -22,7 +24,9 @@ const die = (m) => { console.error(m); process.exit(1); };
 const keyFile = join(DATA, "keys", "local.json");
 const loadKey = async () => {
   if (!existsSync(keyFile)) die("No local key yet. Start llpd once first; it creates one.");
-  const k = JSON.parse(readFileSync(keyFile, "utf8"));
+  let k;
+  // Sealed when llpd runs with a data key (PR-03): the same LLP_DATA_KEY* variable opens it here.
+  try { k = JSON.parse(fileVault(DATA, dataKeyFromEnv(), "llpd").read("keys/local.json")); } catch (e) { die(e.message); }
   return { priv: await crypto.subtle.importKey("jwk", k.private, { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]), pub: k.public };
 };
 
@@ -79,4 +83,14 @@ else if (cmd === "status") {
   try { const r = await fetch(`http://127.0.0.1:${PORT}/status?token=${uiToken()}`); console.log(await r.text()); }
   catch { die(`llpd isn't running on port ${PORT}`); }
 }
-else die("commands: push, watch, trust, open, key, status");
+else if (cmd === "export" || cmd === "erase") {
+  // This device's copy of an app's state (SPEC section 13). Server-side data is exported or erased by
+  // the app's server host (ServerHost.exportUser / eraseUser, or the user's own client with selfService).
+  const [app] = rest;
+  if (!app) die(`usage: llp ${cmd} <app>`);
+  try {
+    const r = await fetch(`http://127.0.0.1:${PORT}/${cmd}?token=${uiToken()}&app=${encodeURIComponent(app)}`, { method: cmd === "erase" ? "POST" : "GET" });
+    console.log(await r.text()); if (!r.ok) process.exit(1);
+  } catch { die(`llpd isn't running on port ${PORT}`); }
+}
+else die("commands: push, watch, trust, open, key, status, export, erase");

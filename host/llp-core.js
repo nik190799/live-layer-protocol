@@ -28,7 +28,7 @@ export async function signManifest(manifest, privateKey) {
   const sig = await crypto.subtle.sign(SIG, privateKey, te.encode(canonical(manifest)));
   return b64.enc(sig);
 }
-async function verifyManifest(manifest, sig, jwk) {
+export async function verifyManifest(manifest, sig, jwk) {
   const key = await crypto.subtle.importKey("jwk", jwk, ECDSA, false, ["verify"]);
   return crypto.subtle.verify(SIG, key, b64.dec(sig), te.encode(canonical(manifest)));
 }
@@ -334,13 +334,28 @@ export function privatePrefixes(manifest) {
   if (!Array.isArray(p) || p.length > 64 || !p.every((x) => typeof x === "string" && x.startsWith("shared/") && x.length > 7 && x.length <= 256)) throw new LayerError("private must be a list of up to 64 shared/ prefixes");
   return p;
 }
+// manifest.personal = ["shared/users/", "server/profiles/", ...] (PR-02): under each prefix, the first
+// path segment names the person the key is about. The server host exports and erases a person's data
+// by these prefixes (section 13). Private prefixes (above) count as personal too.
+export function personalPrefixes(manifest) {
+  const p = manifest.personal;
+  if (p === undefined) return [];
+  if (!Array.isArray(p) || p.length > 64 || !p.every((x) => typeof x === "string" && x.length > 0 && x.length <= 256 && x.endsWith("/") && !x.startsWith(HOST_KEYS) && !x.startsWith("__")))
+    throw new LayerError('personal must be a list of up to 64 key prefixes ending in "/" (not __ keys)');
+  return p;
+}
+// The person a key belongs to under the given prefixes, or null.
+export function ownerOf(key, prefixes) {
+  for (const p of prefixes) if (key.startsWith(p)) { const seg = key.slice(p.length).split("/")[0]; if (seg && key.length > p.length + seg.length) return seg; }
+  return null;
+}
 // ---------- protocol version (GOV-01) ----------
 // A manifest may say which LLP version it follows: "llp": 1. A host refuses versions it doesn't
 // implement. Version 1 is strict: every top-level field must be one this host understands (fields
 // starting "x-" are ignorable extensions), and isolation is the default, not opt-in: a v1 manifest must
 // declare "keys" (6.2) and "caps" (9). Manifests without "llp" are v0 and keep the v0 rules.
 export const LLP_VERSION = 1;
-export const MANIFEST_FIELDS = new Set(["llp", "app", "version", "epoch", "layers", "order", "hosts", "keys", "caps", "private", "channel", "rollout", "overlap"]);
+export const MANIFEST_FIELDS = new Set(["llp", "app", "version", "epoch", "layers", "order", "hosts", "keys", "caps", "private", "personal", "channel", "rollout", "overlap"]);
 export function protocolProblem(m) {
   if (m.llp === undefined) return null;
   if (!Number.isSafeInteger(m.llp) || m.llp < 1) return `llp must be a positive integer, got ${JSON.stringify(m.llp)}`;
@@ -540,7 +555,7 @@ export class LiveHost {
     let rules;
     let caps;
     try {
-      rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest);
+      rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest); personalPrefixes(manifest);
       if (manifest.overlap !== undefined && !(Number.isSafeInteger(manifest.overlap) && manifest.overlap >= 0)) throw new LayerError("overlap must be a non-negative number of milliseconds");
     } catch (e) { return this.reject(manifest, e.message); }
 
@@ -565,11 +580,16 @@ export class LiveHost {
         staged.push({ slot, hash, box });
         const want = box.schema;
         const have = shadowKv.get(`__schema.${slot}`) ?? want;
-        if (want !== have) {
+        // A server host with several channels shares one store between them (SPEC 10.5): when another
+        // channel already migrated this slot's data to a newer schema, older code joins it without
+        // migrating back, under the same expand/contract rule as the overlap window.
+        const joins = want < have && this.siblingSchema?.(slot, have) === true;
+        if (want !== have && !joins) {
           if (!box.hasMigrate) throw new LayerError(`${slot}: schema ${have}→${want} but no llp_migrate`);
           await this.call(slot, box, "llp_migrate", shadowKv, null, [have]);
         }
-        shadowKv.set(`__schema.${slot}`, want);
+        if (joins) this.log("warn", `${slot}: data is on schema ${have} (migrated by another channel); this release's code expects ${want} and must read it (expand/contract)`, { slot });
+        else shadowKv.set(`__schema.${slot}`, want);
         // health check: must render cleanly against real state (a headless layer may have no view)
         if (box.hasView) await this.call(slot, box, "llp_view", shadowKv, null, [], { apply: !this.headless });
       }

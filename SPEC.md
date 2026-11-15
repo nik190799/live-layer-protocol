@@ -1,6 +1,6 @@
 # Live Layer Protocol (LLP) — v0 draft
 
-Status: working draft, reference implementation in `host/llp-core.js`. Every rule below is exercised by `test/run.mjs` (section 6.1 by `test/sandbox.mjs`, section 10 by `test/hosts.mjs`, section 12 by `test/fleet.mjs`).
+Status: working draft, reference implementation in `host/llp-core.js`. Every rule below is exercised by `test/run.mjs` (section 6.1 by `test/sandbox.mjs`, section 10 by `test/hosts.mjs`, 10.5 by `test/channels.mjs`, section 12 by `test/fleet.mjs`, section 13 by `test/privacy.mjs` and `test/at-rest-hosts.mjs`).
 
 ## 1. Goal
 
@@ -44,7 +44,7 @@ Signature: ECDSA P-256 / SHA-256 over the **canonical JSON** (sorted keys, no wh
 
 **Protocol version.** A manifest may carry `"llp": 1` (signed). A host refuses a manifest whose `llp` is newer than it implements. An LLP 1 manifest is strict:
 
-- Every top-level field must be one the host understands: `llp`, `app`, `version`, `epoch`, `layers`, `order`, `hosts`, `keys`, `caps`, `private`, `channel`, `rollout` and `overlap`. Optional extensions start with `x-` and may be ignored.
+- Every top-level field must be one the host understands: `llp`, `app`, `version`, `epoch`, `layers`, `order`, `hosts`, `keys`, `caps`, `private`, `personal` (section 13), `channel`, `rollout` and `overlap`. Optional extensions start with `x-` and may be ignored.
 - It must declare `keys` (6.2) and `caps` (section 9), so state isolation and declared capabilities are the default.
 
 A manifest without `llp` is v0, and unknown fields in it are ignored, as before. Hosts send `"llp": 1` in `hello`.
@@ -186,12 +186,15 @@ Wire messages, next to the section 5 stream on the client ↔ server link:
 
 | Direction | Message |
 |---|---|
-| client → server | `{"t":"hello","app","version","have","token","watch"?}` (the section 5 hello plus a token and the `shared/` prefixes to mirror) |
-| server → client | `{"t":"shared","full"?,"set":[[key,value]…],"del":[key…]}`, then `manifest` if newer than the client's |
+| client → server | `{"t":"hello","app","version","epoch"?,"have","token","watch"?,"channel"?,"keyring"?}` (the section 5 hello plus a token, the `shared/` prefixes to mirror, and the client's channel and keyring number, 10.5) |
+| server → client | `{"t":"keyring","doc","sigs"}` for each keyring newer than the client's (10.5), then `{"t":"shared","full"?,"set":[[key,value]…],"del":[key…]}`, then `manifest` if the client's channel has a newer release than the client's `(epoch, version)` |
 | client → server | `{"t":"call","id","idem","slot","op","args","version"}` |
 | server → client | `{"t":"reply","id","ok":true,"value"}` or `{"t":"reply","id","ok":false,"error":{"code","message","serverVersion"?}}` |
+| client → server | `{"t":"skip","version","reason"}`: the client is outside a release's rollout share and stays on its version (10.5) |
+| client → server | `{"t":"privacy","id","op":"export"\|"erase"}`; answered by `{"t":"privacy","id","ok","value"\|"error"}` (section 13) |
+| server → client | `{"t":"erased","app","at"}`: the signed-in user's data was erased; the client clears its own copy (section 13) |
 
-Error codes: `bad_request` (malformed call; `args` over 64 KB), `unauthorized` (no or bad token), `not_found` (no such server slot in the caller's version), `version_mismatch` (with `serverVersion`), `layer_failed` (the server layer trapped or ran past its limit; the call's writes are dropped and the worker restarts on the same version; the slot is reverted, as in principle 6, only when calls from `revertAfterUsers` (default 3) different users fail on that version within `revertWindowMs` (default 60 s), so one user's input can't change the code everyone runs), `app_error` (the layer refused the input), `overloaded` (more than `maxPending`, default 256, calls queued for the tenant).
+Error codes: `bad_request` (malformed call; `args` over 64 KB), `unauthorized` (no or bad token), `not_found` (no such server slot in the caller's version), `version_mismatch` (with `serverVersion`), `layer_failed` (the server layer trapped or ran past its limit; the call's writes are dropped and the worker restarts on the same version; the slot is reverted, as in principle 6, only when calls from `revertAfterUsers` (default 3) different users fail on that version within `revertWindowMs` (default 60 s), so one user's input can't change the code everyone runs), `app_error` (the layer refused the input), `overloaded` (more than `maxPending`, default 256, calls queued for the tenant), `unavailable` (the result couldn't be saved, 10.3 rule 6; or a privacy request the server doesn't offer), `erased` (the call's record was erased with the user's data, section 13, so it is not run again).
 
 **Auth.** `hello` carries a token; the server host's `authenticate(token, app)` returns a user id or refuses (`unauthorized`, then disconnect). The reference scheme is an HMAC-signed `{user, app, expiry}` token; any function with that shape can replace it. The server layer sees the call as `llp_event` with id `<op>` and value `<user>\n<args>`: the first line is always the authenticated user, never something the client sent.
 
@@ -213,7 +216,7 @@ Error codes: `bad_request` (malformed call; `args` over 64 KB), `unauthorized` (
 4. **Rollback is a new version.** A local revert (principle 6) is per-host and reported as `nack`. A client that refuses N stays on N−1 and works until the window closes; after that its calls fail with a clear `version_mismatch` until the publisher ships N+1 that it can run. Rolling back the app for everyone means publishing N+1 that points at the old hashes, keeping anti-rollback intact.
 
 5. **Outside effects.** When a remote call has an `idem`, each capability it uses gets a stable `callId` (`user:idem#hop.n`), passed to the provider so an external API can deduplicate. The server records the effect as pending before it runs and as done, with its result, after. With `dataDir` the record is durable. A re-run of the call reuses a done effect's result, and a pending one (interrupted by a crash) runs again with the same `callId`.
-6. **Durable server state.** A server host created with `dataDir` keeps each tenant's store, its idempotency records and its current release on disk (`host/server-store.mjs`). Every commit is one appended log line holding the keys it changed and the idempotency records of the calls it answers, written (and by default fsync'd) **before** the reply is sent. A periodic snapshot replaces the log. On start the host loads the snapshot, replays the log (ignoring a torn last line from a crash), re-verifies the stored manifest's signature and runs it on the restored state, before it accepts clients. A call retried after a restart with the same `idem` gets the recorded answer and doesn't run again. If a commit can't be written, the call gets `unavailable` and should be retried with the same `idem`. Without `dataDir` the host warns that its state is memory-only. Older versions' overlap windows are not restored: after a restart, clients on an older version get `version_mismatch` and update.
+6. **Durable server state.** A server host created with `dataDir` keeps each tenant's store, its idempotency records and its current release on disk (`host/server-store.mjs`). Every commit is one appended log line holding the keys it changed and the idempotency records of the calls it answers, written (and by default fsync'd) **before** the reply is sent. A periodic snapshot replaces the log. On start the host loads the snapshot, replays the log (ignoring a torn last line from a crash), re-verifies the stored manifest's signature and runs it on the restored state, before it accepts clients. A call retried after a restart with the same `idem` gets the recorded answer and doesn't run again. If a commit can't be written, the call gets `unavailable` and should be retried with the same `idem`. Without `dataDir` the host warns that its state is memory-only. Older versions' overlap windows are not restored: after a restart, clients on an older version get `version_mismatch` and update. Releases pinned by a partial rollout are restored (10.5). With a data key, everything but blobs is encrypted (13.4).
 
 The window only affects latency, not correctness: with retry-on-mismatch a client that missed the window pays one extra round trip. Measured: relaying a server-only change to 40 clients takes about 20 ms; a change that also swaps the client slot takes 350 ms (p50) to 490 ms (max). The 30 s default is about 60 times the measured worst case.
 
@@ -227,6 +230,19 @@ A host that serves UI to other programs on the same device (the reference `servi
 
 Two devices pair by comparing a fingerprint (the first 80 bits of SHA-256 over the key's `x.y`, shown as five groups of four hex digits) on both screens. A host never trusts a new key without that confirmation, not even the first key it sees.
 
+### 10.5 Release channels on the server host
+
+Implemented in `host/server-host.mjs` (lanes, `joinFleet`) and `host/remote-client.mjs` (`channel`, `id`, `trust`); proven by `test/channels.mjs` (red-team FL-01).
+
+1. **One lane per channel.** A server host keeps, per tenant, one lane for each channel it has a release for: the lane's committed release, its server workers, its overlap window and its pinned releases. Manifests without `channel` go to the no-channel lane, which is what a single-channel deployment uses. A tenant has at most 32 lanes. `version` is still one counter for the whole app (12.1), so a version names exactly one release of one channel.
+2. **One store.** All lanes of a tenant share one state store, one call queue, the idempotency records and the effect records. A write on any channel is seen by every channel, and calls on different channels never interleave.
+3. **Clients name their channel.** A client's `hello` carries `channel`. The server relays to it only that lane's releases and resolves its calls in that lane. A client host refuses a manifest whose `channel` differs from its own (as a fleet host does, 12.1), even when its own server sends it. Read rules (`private`, 10.2) come from the client's channel's release.
+4. **Schema across channels.** A server migration on one channel migrates the shared data for every channel (it runs once, in that lane's shadow). Another channel whose code expects an older schema keeps running it on the migrated data: the expand/contract rule (10.3 rule 3) applies for as long as both channels are live, exactly as it does inside an overlap window. When a lane commits code whose `llp_schema` is older than the stored schema, and another lane of the tenant is running that slot with the stored schema, the lane joins the data without migrating and without lowering the stored marker; otherwise the release is refused as before. On restart, lanes are restored newest release first, so such a lane finds the lane that migrated already running.
+5. **Rollout shares.** The server applies every share of a release, whatever its percent; its clients decide whether they are in it. A client computes its bucket from its device `id` (12.2) and applies a release below 100% only if it is in the share; otherwise it sends `skip` and stays on its version. A client without an `id` stays out of every partial share and gets each release at 100%. While a lane's release is below 100%, every older release of that lane that was still served when the share started stays served (pinned), past the overlap window, because clients outside the share can't move. When the share reaches 100% (a new full release, or the same version re-signed at 100%), the pinned releases close after the normal window. A signed `overlap: 0` closes them at once, even during a partial share.
+6. **Re-signed releases.** A re-signed manifest of the version a lane runs is accepted only if it differs from the running one in `rollout` alone, and only if it verifies; it is then relayed to that lane's clients. That is how a widened share reaches clients behind the server.
+7. **Joining a fleet.** `joinFleet(url, channels)` opens one fleet connection per channel, each a fleet agent (section 12) with the host id `<id>/<channel>`, all sharing the server's keyring and device key. The controller therefore sees the server host as one host per channel. Keyrings the server accepts are kept in its data dir and relayed to every client behind it, which checks each one against its own trusted root before using it (12.4). Re-signed releases in the new epoch follow.
+8. **Persistence.** With `dataDir`, each lane's release and its pinned releases are saved (`releases.json`). On restart every one is re-verified against the trusted keys. Pinned releases' workers start on their first call.
+
 ## 11. Known gaps in v0 (deliberately deferred)
 
 - Time limits are wall-clock, not CPU time, so a heavily loaded device can cut off a slow but honest layer. Limits are per host, not per layer or per manifest.
@@ -238,7 +254,8 @@ Two devices pair by comparing a fingerprint (the first 80 bits of SHA-256 over t
 - Bespoke JSON-free ABI instead of the WebAssembly Component Model/WIT; the ABI is designed to map onto WIT once browser support lands.
 - Fleet status reports (section 12.3) come from hosts that proved their device key, but their content is still the host's own word: fine for tracking and gating rollouts, not proof of what code a host runs.
 - **Run-anywhere hosts (section 10), what's still open:**
-  - Channels (12.1) and the server host don't compose yet. The server keeps only the current version and the previous one (for the window), so if beta clients run v8 while stable clients run v7, stable clients' calls get `version_mismatch` once the window closes. The server needs to keep every channel's current server slots live.
+  - Channels compose with the server host (10.5), but clients behind a server report only to the server (`ack`, `nack`, `skip`; `clientStatus()`), not to the fleet controller. The controller's convergence counts and gated rollouts see the server host itself, one host per channel, not the devices behind it. Freshness notes (12.3.1) are not relayed to those clients.
+  - Every lane's pinned and current server workers stay loaded while they are used. A long partial rollout on several channels multiplies server workers; idle ones are stopped and restarted on demand, as for the current release.
   - A tenant's calls run one at a time (one writer on one store): 4,000 to 7,000 simple calls per second per tenant in our runs, and a long compute call holds up that tenant's other calls. Read-only or per-key concurrency is not built.
   - One worker per server layer per active tenant costs about 9 MB. Idle tenants give theirs back, but many simultaneously busy tenants need more machines, or many tenants sharing one worker.
   - A client mirroring all of a big `shared/` store runs out of worker memory around 1M keys; clients must `watch` narrower prefixes. Per-user read rules on `shared/` exist (10.2, `private`), but they are per-prefix ownership only, not general access control lists.
@@ -313,3 +330,40 @@ Signatures go alongside the document as `[{ "kid", "sig" }]`, where `kid` is the
 The core's `trustedKeys` becomes the keyring's release keys; the agent also checks the signature itself before evaluating channel or share. The agent pins the host to the keyring's `app` and sets the host's trusted epoch to the keyring number.
 
 - **Epochs:** the controller stamps every manifest with `epoch` = its current keyring number. On a release key rotation it re-signs each channel's current manifest with the new key and the new epoch. A host that a leaked key pushed to a high version therefore moves back to the real release as soon as it accepts the new keyring, and the leaked key's release is refused from then on (its key is no longer trusted).
+
+## 13. Personal data and data at rest
+
+Implemented in `host/server-host.mjs` (`exportUser`, `eraseUser`, `auditLog`), `host/remote-client.mjs` (`exportMine`, `eraseMine`), `service/llpd.mjs` (`/export`, `/erase`, `llp export|erase`) and `host/at-rest.mjs` (encryption); proven by `test/privacy.mjs` and `test/at-rest-hosts.mjs` (red-team PR-02, PR-03).
+
+### 13.1 Whose data a key is
+
+A manifest may declare `"personal": ["server/profiles/", "shared/users/"]`: key prefixes under which the first path segment names the person the key is about (`server/profiles/alice/email` is alice's). Each prefix ends in `/` and may not start with `__`; the field is signed, at most 64 prefixes. Prefixes listed in `private` (10.2) are personal too. The prefixes in force for a tenant are the union over every release it serves, on every channel, pinned ones included.
+
+### 13.2 Export and erase on the server host
+
+- **Export** returns, as one consistent snapshot taken in the tenant's call queue: every key under a personal prefix owned by the person, the recorded results of their calls (the idempotency records, keyed `user:idem`), and the outside effects of those calls (10.3 rule 5).
+- **Erase** deletes the same set. The tenant's log is then replaced by a fresh snapshot, so no erased value stays in the log file. Clients that mirrored an erased key get it deleted (`shared` message), and the person's own connected clients get `erased`. Each erased call id leaves a tombstone, a SHA-256 of `user:idem`, so a retried call is answered `erased` instead of running a second time (a payment is not charged twice). Tombstones are kept like idempotency records (the last 10,000 per tenant).
+- **Audit log.** Every export and erase appends `{ at, op, user, by, keys, calls, effects, prev }` to the tenant's audit log: who asked, for whom, and how much, never the data. `prev` is the SHA-256 of the previous entry, so a removed or edited line breaks the chain; `auditLog(app)` returns the entries and the chain check. The audit entry names the person, because a record of an erasure must say whose it was.
+- **Who may ask.** The operator, through the API (`by` names who acted). Self-service over the client link (`privacy` messages) is off unless the server host is created with `selfService: true`; a signed-in user can then export or erase only their own data. The request carries no user field: the server uses the authenticated user.
+
+### 13.3 On the device
+
+A client's own state (every key except the `shared/` mirror and `__schema.*` markers) belongs to the device's user. On `erased`, a client clears it by default (`onErased` overrides that), and saving the cleared state is up to the embedder as for any change. `exportMine()` and `eraseMine()` on a client link cover the server and the device together. The device service exposes the same for each app: `GET /export` and `POST /erase` with the UI token, and `llp export <app>`, `llp erase <app>`.
+
+### 13.4 Encryption at rest
+
+A data key is 32 random bytes. Every saved record is sealed with AES-256-GCM as `"LLPE1." + base64url(iv[12] | ciphertext | tag[16])`, with associated data naming where it belongs (for example `llp/server/<app>/log`), so a record moved to another file or tenant fails to open, and a changed byte is an error, not different data. Each log line is sealed on its own, so a torn last line from a crash is still dropped, while a bad line before it stops the start.
+
+- **What is sealed.** Server host: each tenant's snapshot, log, releases and audit log, and its fleet keyring, keyring chain and device key. Device service: each app's state and release, and the device's publisher key. Fleet host: its device key and saved keyring. **What stays plain:** blobs (code that anyone on the stream may fetch; their hash proves them), tenant and app names, the device service's list of trusted public keys and its UI token file (0600).
+- **Where the key comes from.** Never from beside the data. `dataKeyFrom` takes it from an environment variable, a file only the owner can read (other-readable files are refused), or a command that prints it; the command is how an OS keystore is reached (`secret-tool lookup …` on Linux, `security find-generic-password … -w` on macOS, a DPAPI one-liner on Windows). The command-line hosts read `LLP_DATA_KEY`, `LLP_DATA_KEY_FILE` or `LLP_DATA_KEY_CMD`.
+- **Starting.** A `keycheck` record tells a wrong key from damage. A host refuses to start on sealed data without its key or with another key, and never reads sealed data as plain. Starting with a key on plaintext data seals it. A server host started with `dataKey` and `previousDataKeys` re-seals everything under the new key; afterwards the old key is refused.
+
+### 13.5 Gaps
+
+- Export and erase find data only by key prefix. Data a layer copies elsewhere (for example the person's id inside a shared list, or inside another person's keys) is not found; the export says so. Server layers can't yet be asked to scrub their own copies.
+- Replacing the log removes erased values from the files, but not from disk blocks, backups or replicas that already hold them. Per-person keys (crypto-shredding) are not built.
+- The server host's in-memory log (`history`, `onLog`) can name users; it is the embedder's to keep or drop.
+- Browsers' saved state (`localStorage` in the web demo) is not encrypted: a page has no OS keystore to hold the key.
+- Sensitive values are encrypted with the rest of the store; there is no per-key marking, and layers see plaintext while they run.
+- OS keystores are reached through a command the operator sets up; the reference code doesn't talk to keystore APIs or hardware keys itself, and only the command path is tested (with a stand-in command), not a real keystore.
+

@@ -153,12 +153,18 @@ const M = (version, extra = {}) => ({ app: "demo.tasks", version, layers: { main
   d.close();
 
   // The stored release is re-verified on restart: an edited file on disk doesn't run.
-  const cur = JSON.parse(rf(join(tdir, "current.json"), "utf8"));
-  cur.manifest.layers.sync = ht;
-  writeFileSync(join(tdir, "current.json"), JSON.stringify(cur));
+  const rel = JSON.parse(rf(join(tdir, "releases.json"), "utf8"));
+  rel.lanes[0][1].manifest.layers.sync = ht;
+  writeFileSync(join(tdir, "releases.json"), JSON.stringify(rel));
   let e = make();
   const back = await e.ready;
   check("SEC16 a release edited on disk is refused at restart (signature re-checked)", !back[0].ok && /signature/.test(back[0].reason) && e.tenant(APP).host.version === 0, back[0].reason);
+  // A release on another channel of the same app rewrites releases.json; the refused record stays as it was on disk.
+  const beta = { ...man, version: 5, channel: "beta" };
+  const okBeta = await e.offer(beta, await signManifest(beta, key.privateKey), fetchBlob);
+  const lanesOnDisk = JSON.parse(rf(join(tdir, "releases.json"), "utf8")).lanes;
+  check("SEC16b a release that failed to restore is kept on disk when another channel commits (never relayed, never lost)",
+    okBeta.ok && lanesOnDisk.length === 2 && lanesOnDisk.find(([ch]) => ch === null)?.[1].manifest.layers.sync === ht && !e.tenant(APP).releases.has(null), lanesOnDisk.map(([c]) => c ?? "(none)").join(", "));
   e.close();
 
   const warned = [];

@@ -4,6 +4,9 @@
 // can't fall back to a revoked key (FL-02). It defaults to "trust" beside the pinned keyring.
 // --no-trust-dir turns that off (tests and throwaway hosts only): a restarted host then trusts the
 // pinned keyring again until it reconnects. A saved file that exists but can't be read stops the host.
+// With LLP_DATA_KEY, LLP_DATA_KEY_FILE or LLP_DATA_KEY_CMD set (host/at-rest.mjs), the trust dir's
+// files are sealed (PR-03): the device key can't be read, and the saved keyring can't be swapped for an
+// older one, without the data key.
 // --count N runs N independent hosts in this process (ids <id>-0 .. <id>-N-1), for simulations.
 // Prints one JSON line per status report. Commands on stdin: "click <slot> <id>" (all hosts), "state".
 import { readFileSync, writeFileSync, renameSync, mkdirSync, existsSync } from "node:fs";
@@ -11,6 +14,7 @@ import { join, dirname } from "node:path";
 import { createInterface } from "node:readline";
 import { LiveHost } from "./llp-core.js";
 import { FleetAgent, TrustStore, generateDeviceKey } from "./fleet.js";
+import { dataKeyFromEnv, fileVault } from "./at-rest.mjs";
 
 const [url, keyringFile] = process.argv.slice(2);
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i > 0 ? process.argv[i + 1] : d; };
@@ -19,12 +23,15 @@ const pinned = JSON.parse(readFileSync(keyringFile, "utf8"));
 const trustDir = process.argv.includes("--no-trust-dir") ? null : arg("--trust-dir", join(dirname(keyringFile), "trust"));
 const freshMode = arg("--freshness", null); // warn | refuse (SEC-01): report, or also refuse installs, without a valid freshness note
 if (trustDir) mkdirSync(trustDir, { recursive: true });
+let vault = null;
+if (trustDir) { try { vault = fileVault(trustDir, dataKeyFromEnv(), "fleet-host"); } catch (e) { console.error(`error: ${e.message}`); process.exit(2); } }
+const rel = (file) => file.slice(trustDir.length + 1);
 const trustFile = (id) => join(trustDir, `${id.replace(/[^\w.-]/g, "_")}.keyring.json`);
 const agents = [];
 // Read a saved file, or stop: falling back to the pinned keyring would undo a revocation (FL-02).
 const readSaved = (file) => {
   if (!existsSync(file)) return null;
-  try { return JSON.parse(readFileSync(file, "utf8")); }
+  try { return JSON.parse(vault.read(rel(file))); }
   catch (e) { console.error(`error: can't read ${file} (${e.message}). Fix or remove it; this host won't start without it.`); process.exit(2); }
 };
 const ECDSA = { name: "ECDSA", namedCurve: "P-256" };
@@ -36,7 +43,7 @@ async function deviceKeyFor(id) {
   const saved = file && readSaved(file);
   if (saved) return { privateKey: await crypto.subtle.importKey("jwk", saved.private, ECDSA, true, ["sign"]), publicJwk: saved.public };
   const k = await generateDeviceKey();
-  if (file) { writeFileSync(file + ".tmp", JSON.stringify({ private: await crypto.subtle.exportKey("jwk", k.privateKey), public: k.publicJwk }), { mode: 0o600 }); renameSync(file + ".tmp", file); }
+  if (file) vault.write(rel(file), JSON.stringify({ private: await crypto.subtle.exportKey("jwk", k.privateKey), public: k.publicJwk }));
   else if (!agents.length) console.error("warning: --no-trust-dir, so this host's device key and keyring are not kept across restarts");
   return k;
 }
@@ -50,7 +57,7 @@ async function start(id) {
   const prevSend = agent.send;
   agent.send = (m) => {
     if (m.t === "status") console.log(JSON.stringify({ ...m, at: Date.now() }));
-    if (m.t === "status" && m.state === "keyring" && trustDir) { writeFileSync(trustFile(id) + ".tmp", JSON.stringify(trust.doc)); renameSync(trustFile(id) + ".tmp", trustFile(id)); }
+    if (m.t === "status" && m.state === "keyring" && trustDir) vault.write(rel(trustFile(id)), JSON.stringify(trust.doc));
     prevSend(m);
   };
   const connect = () => {
