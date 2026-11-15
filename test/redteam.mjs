@@ -64,10 +64,12 @@ const fetchBlob = async () => tasks;
   const stats = read("stats.wasm"), hs = await sha256(stats);
   const host = new LiveHost({ allowUnsigned: true, limits: { isolation: "inline" } });
   host.kv.set("tasks.n", 1); host.kv.set("tasks.0.text", "private note"); host.kv.set("tasks.0.done", 1);
-  const r = await host.apply({ app: "demo.tasks", version: 1, layers: { main: h, footer: hs }, order: ["main", "footer"] }, "", async (x) => x === hs ? stats : tasks);
+  // With per-slot keys declared and no read share, the footer must not see main's tasks.* keys.
+  const keys = { main: { own: ["tasks.", "draft"] }, footer: { own: ["geo"] } };
+  const r = await host.apply({ app: "demo.tasks", version: 1, layers: { main: h, footer: hs }, order: ["main", "footer"], keys }, "", async (x) => x === hs ? stats : tasks);
   const views = await host.render();
   const footer = JSON.stringify(views.find((v) => v.slot === "footer")?.tree ?? {});
-  report("RT-04 no per-layer state isolation", r.ok && footer.includes("100%"), "footer layer computed its output from the main layer's keys");
+  report("RT-04 no per-layer state isolation", !r.ok || footer.includes("100%"), r.ok ? (footer.includes("100%") ? "footer computed its output from main's keys" : "with declared keys the footer can't read main's keys (opt-in: manifests without keys still share)") : r.reason);
   host.close();
 }
 

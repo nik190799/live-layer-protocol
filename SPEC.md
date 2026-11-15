@@ -82,6 +82,18 @@ When a slot has no previous version to revert to, the host restarts the same ver
 
 Measured on Node 22 (Linux, 2 slots): a warm swap takes about 3 ms (was about 1 ms on the main thread); the first swap takes about 40 ms because it boots the first worker; a two-layer render takes 0.13 ms (was 0.015 ms); an event with its re-render takes 0.23 ms (was 0.02 ms); each worker costs about 12 MB of memory. A stuck layer is cut off about 105 ms after the call starts (about 1 s if the stuck call is its first one, as in a swap's health check), and the host's thread never stalls more than a few milliseconds while it runs. Chromium gives the same results (`test/browser.mjs`).
 
+### 6.2 Per-slot keys
+
+A manifest may declare which state keys each slot owns and which it may read:
+
+```json
+"keys": { "main": { "own": ["tasks.", "draft"] }, "footer": { "own": ["geo"], "read": ["tasks."] } }
+```
+
+Entries are key prefixes. Once a manifest declares `keys`, every slot in it needs an entry. Owned prefixes of different slots may not overlap (a key has one owner), and no prefix may cover `__schema.*`; otherwise the manifest is rejected. The field is inside the signature, so a share is the publisher's decision. A slot's worker replica holds only the keys under its `own` and `read` prefixes, so it can't see anything else. A write outside its `own` prefixes fails the call like a trap: nothing it wrote is kept, and the slot is reverted. The rules come from the manifest being committed, so a release can change them without changing code. Inputs bound to state (`bind`) are written by the host, not a layer, and aren't subject to them.
+
+`__schema.<slot>` markers belong to the host: no layer may write a `__schema.*` key, with or without declared keys. Manifests without `keys` keep the v0 behaviour, in which all slots on a host share one key space. That is still the default, so isolation is opt-in until a protocol version makes it required (red-team GOV-01).
+
 ## 7. Layer ABI (v0)
 
 Imports, module `llp` (strings are UTF-8 `(ptr, len)` in the layer's memory; reads into a layer-provided buffer return the full length):
