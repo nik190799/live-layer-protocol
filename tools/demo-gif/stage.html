@@ -147,37 +147,7 @@ ws.onmessage = async (ev) => {
     send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, code: r.code, reason: r.reason });
     if (r.ok) { build++; swaps.push({ build, ms: r.ms, tasks: host.kv.get("tasks.n") ?? 0, draft: host.kv.get("draft") ?? "", at: Date.now() }); }
   }
-  function paint(slots) {
-    const frag = document.createDocumentFragment();
-    for (const s of slots) { const box = document.createElement("div"); box.className = "slot"; box.appendChild(s.error ? document.createTextNode(s.error) : make(s.tree, s.slot)); frag.appendChild(box); }
-    screen.replaceChildren(frag);
-    const els = [...screen.querySelectorAll(".slot:first-child [class^=u-]")];
-    if (d.glowNext && d.prevKeys) for (const el of els) if (!d.prevKeys.has(keyOf(el))) el.classList.add("new");
-    d.glowNext = false; d.prevKeys = new Set(els.map(keyOf));
-  }
-  d.host = new LiveHost({ app: "demo.tasks", trustedKeys: [trusted], capabilities: { haptic: async () => "ok" }, onRender: paint, onLog: () => {} });
-  // This device's own data, already there before the stream connects (state is host-owned and survives every swap).
-  tasks.forEach(([t, done], k) => { d.host.kv.set(`tasks.${k}.text`, t); d.host.kv.set(`tasks.${k}.done`, done); });
-  d.host.kv.set("tasks.n", tasks.length);
-  const ws = new WebSocket(`ws://127.0.0.1:${q.get("port")}`), pending = new Map();
-  const send = (m) => ws.send(JSON.stringify(m));
-  ws.onopen = () => send({ t: "hello", llp: 1, app: "demo.tasks", version: d.host.version, have: [] });
-  ws.onmessage = async (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.t === "blob") pending.get(msg.hash)?.(b64.dec(msg.data));
-    if (msg.t === "manifest") {
-      d.glowNext = d.build > 0;
-      const r = await d.host.apply(msg.manifest, msg.sig, (h) => new Promise((res) => { pending.set(h, res); send({ t: "want", hashes: [h] }); }));
-      send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, code: r.code, reason: r.reason });
-      if (r.ok) { d.build++; d.swaps.push({ build: d.build, ms: r.ms, tasks: d.host.kv.get("tasks.n") ?? 0 }); root.querySelector(".build").textContent = `build ${d.build}`; }
-    }
-  };
-  return d;
-}
-const devices = [
-  device(0, [["Buy milk", 1], ["Call mom", 0], ["Ship the demo", 0]]),
-  device(1, [["Book flights", 0], ["Gym at 6", 1], ["Pay rent", 1], ["Read SPEC", 0]]),
-];
+};
 
 // ---- the today device: the real today app in an iframe; count its page loads ----
 let todayLoads = 0;
