@@ -12,7 +12,7 @@ What is real:
 - The two phones are two real Live Hosts (`host/llp-core.js`, layers in Web Workers) in Chromium. Each
   has its own data and its own WebSocket to the publisher, and checks the signature. Their starting
   tasks are set before they connect, and Delete is clicked on the first phone at the end.
-- Every number in a caption comes from that run: the swap time is what the host measured, the
+- Every number on the LLP side comes from that run: the swap time is what the host measured, the
   compile and check times are what the publisher printed.
 - The script fails, and writes no GIF, if the run did not show what the captions say (3 and 4 tasks kept on the two phones,
   the bad change caught as a trap while both phones stayed on the previous build, the fix live on the
