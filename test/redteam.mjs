@@ -60,5 +60,16 @@ const fetchBlob = async () => tasks;
   host.close();
 }
 
+// RT-05: a fresh host isn't tied to one app, so a release signed for any app by a trusted key
+// installs on it. The host should be pinned to its app name from the start.
+{
+  const key = await generatePublisherKey();
+  const host = new LiveHost({ trustedKeys: [key.publicJwk], limits: { isolation: "inline" } });
+  const m = { app: "some.other.app", version: 1, layers: { main: h }, order: ["main"] };
+  const r = await host.apply(m, await signManifest(m, key.privateKey), fetchBlob);
+  report("RT-05 host not pinned to an app", r.ok, r.ok ? "a release for another app installed" : r.reason);
+  host.close();
+}
+
 console.log(`\n${out.filter((x) => x.confirmed).length} of ${out.length} findings still hold`);
 process.exit(0);

@@ -94,3 +94,65 @@ Severity is about adoption: **Critical** means a security reviewer would block L
 **Safe behaviour:** the person sees and approves every comment that lands in the live source, and the prompt marks the source as data.
 
 **Fix:** show comment changes clearly in the diff, and frame the source in `firstRequest()` as reference material, not instructions.
+
+## 3. Security, trust and keys
+
+### RT-05 A fresh host isn't tied to one app (Medium, proven)
+
+**In plain words:** a brand-new host remembers which app it is only after the first release lands. Until then it accepts a release for any app, as long as a trusted key signed it. If one publisher key signs several apps, a device can end up running the wrong one.
+
+**Where:** `applyNow` checks `manifest.app` only `if (this.app)`.
+
+**Safe behaviour:** the host is told its app name at install and refuses releases for any other app.
+
+**Fix:** make `app` a required `LiveHost` option (the fleet host already does this through its keyring) and compare it on every apply.
+
+### SEC-01 A device can be kept on an old release (High, reasoned; known gap)
+
+**In plain words:** releases don't expire. A relay or cache that stops passing on new releases can keep devices on an old one indefinitely, and a fresh install will accept any old signed release as its first. The device has no way to notice it's stale.
+
+**Safe behaviour:** a host knows how fresh its information is and warns or refuses when it's too old.
+
+**Fix:** follow TUF's timestamp role: the controller signs a short-lived "latest is version N" note, and hosts refuse to run with a note older than a set limit (for example 24 hours for servers, or a softer warning on phones that are often offline).
+
+### SEC-02 Signing keys sit in plain files (High, reasoned)
+
+**In plain words:** the publisher, the AI loop, the fleet controller and `llpd` all save private keys as JSON files (`keys/publisher.json`, `keys/fleet/*.json`, the `llpd` data folder). The fleet controller even keeps root keys next to the release key. Anyone who copies those files can publish code to every device.
+
+**Safe behaviour:** root keys stay offline and need several people to sign. Release keys live in an OS keystore or a hardware key, and the spec says how custody works.
+
+**Fix:** stop saving root keys in `FleetController.save()` and sign keyrings with an offline tool. Support keystore and PKCS#11 signers. Document custody (who holds what, and how many signatures are needed) in the spec.
+
+### SEC-03 A trusted key on the local service can update every app (Medium, reasoned)
+
+**In plain words:** `llp trust` adds a teammate's key for all apps on the device, not just the app they work on.
+
+**Safe behaviour:** trust is per app.
+
+**Fix:** store trusted keys per app in `llpd` (`keys/trusted.json` becomes `{app: [keys]}`), and have `llp trust` take an app name.
+
+### SEC-04 The local service accepts writes to any state key (Medium, reasoned)
+
+**In plain words:** `llpd`'s UI socket lets a client set any key directly, not only the keys the app shows as input boxes. Any program on the same computer can connect and change saved data, including internal keys.
+
+**Where:** `service/llpd.mjs`, the `bind` message.
+
+**Safe behaviour:** a UI client can only set keys that are bound to an input on the current screen. Other local users can't connect at all.
+
+**Fix:** accept `bind` only for keys in the latest render's `binds`. Require a per-session token (written to a file only this user can read) to open the UI socket.
+
+### SEC-05 The web demo trusts the first key it sees (Medium, reasoned)
+
+**In plain words:** on a device that hasn't trusted anyone yet, the browser demo automatically trusts whichever key wrote the first shared release. Whoever gets there first wins.
+
+**Safe behaviour:** new devices pair by confirming a short code that both screens show.
+
+**Fix:** remove the automatic trust in `web/template.html` `onRemote` and always show the trust prompt, with a key fingerprint long enough to compare.
+
+### SEC-06 Messages and downloads have no size limits (Medium, reasoned)
+
+**In plain words:** the server host, publishers and fleet controller accept WebSocket messages up to the library default (100 MB). Layer downloads have no size cap either. A misbehaving peer can make a host hold a lot of memory before anything is checked.
+
+**Safe behaviour:** every message and download has a limit that fits its purpose.
+
+**Fix:** set `maxPayload` on every `WebSocketServer`, add a per-layer size cap to the manifest (signed), and refuse to download more bytes than that cap.
