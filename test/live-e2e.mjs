@@ -59,7 +59,8 @@ host.cmd("set draft this will crash"); host.cmd("click main add"); await sleep(4
 const after = host.out.slice(mark);
 host.cmd("state"); await sleep(200);
 const f5 = lastFrame(host.out);
-check("L5 layer that traps at runtime is auto-reverted; state kept, crashing task not added", /revert/i.test(after) && /Tasks v2/.test(f5) && /Buy milk/.test(f5) && !/this will crash/.test(f5), (after.match(/·[^\n]*revert[^\n]*/i) || [""])[0].trim());
+// tasks_trap.wasm is v1 code (schema 1), so the revert skips v2 (schema 2) and lands on v1 (ST-01).
+check("L5 layer that traps at runtime is auto-reverted; state kept, crashing task not added", /reverted to/i.test(after) && /Tasks/.test(f5) && /Buy milk/.test(f5) && !/this will crash/.test(f5), (after.match(/·[^\n]*revert[^\n]*/i) || [""])[0].trim());
 
 host.kill(); pub.kill();
 

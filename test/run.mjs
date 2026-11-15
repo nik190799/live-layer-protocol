@@ -72,7 +72,9 @@ m = { app: "demo.tasks", version: 6, layers: { main: trap, footer: stats }, orde
 r = await host.apply(m, await sign(m), fetchBlob);
 const before = host.kv.get("tasks.n");
 host.setBound("draft", "this will trap"); await host.dispatch("main", "add");
-check("A13 runtime trap → state restored + auto-revert to previous layer", r.ok && host.kv.get("tasks.n") === before && screen().includes("Tasks v2"),
+// The trap layer declares schema 1 and migrated v2's data down to it, so the revert skips v2 (schema 2)
+// and lands on the newest earlier layer that matches the data's schema (ST-01): tasks.wasm.
+check("A13 runtime trap → state restored + auto-revert to the newest previous layer that matches the data's schema", r.ok && host.kv.get("tasks.n") === before && host.slots.get("main").hash === tasks && !screen().includes("Tasks v2") && screen().includes("Tasks"),
   host.history.filter((e) => e.kind === "rollback").map((e) => e.msg).join("; "));
 
 // 5. Throughput: how fast is one render?

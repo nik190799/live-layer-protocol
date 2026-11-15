@@ -23,6 +23,10 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 | RT-03 authenticate hosts to the controller | Fixed | Behaviour change: fleet connections now start with a challenge, and hosts sign `hello` with a device key. `fleet-host.mjs` keeps the key in `--trust-dir`. Default enrollment is trust-on-first-use; `enrollment: "closed"` requires `enroll()`. |
 | RT-06 fleet controller counts | Fixed | Running counts per channel. 32,000 hosts: 0.3 s per round of reports, down from 10.7 s. Sharding the controller is still open. |
 | RT-04 per-slot state isolation | Fixed, opt-in | Manifests that declare `keys` get isolation (filtered replicas, writes checked). `__schema.*` is protected for everyone. Manifests without `keys` still share state, so existing apps keep working. |
+| ST-01 no revert across a schema change | Fixed | Behaviour change: a revert skips previous versions with a different `llp_schema`, so it can land on an older version than before (tests A13 and L5 were updated for this). |
+| CO-01 no server-wide revert on one call | Fixed | The server restarts the worker on the same version. It reverts only after calls from 3 different users fail within 60 s (both configurable). |
+| AI-01 host text into the AI prompt | Fixed | The publisher, the AI stream and `ai-publish` listen on 127.0.0.1 by default (`--host` to opt out). A host's refusal reason reaches the model capped at 300 characters, quoted and labelled as untrusted. Hosts reporting back are still not authenticated on these single-publisher tools. |
+| SEC-06 size limits | Fixed, partial | `maxPayload` of 1 MB on the server host, fleet controller, publisher and AI stream. Layer downloads are capped at 16 MB (`limits.blobMb`). The cap is checked after a download, not while it streams, and a per-layer size field in the manifest isn't built. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -77,7 +81,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 ## 2. Safety of AI changes and the AI publisher
 
-### AI-01 Text from hosts is fed back to the model unfiltered (High, reasoned)
+### AI-01 Text from hosts is fed back to the model unfiltered (High, reasoned) — FIXED
+
+**Fixed:** `tools/publisher.mjs`, `ai/stream.mjs` and `tools/ai-publish.mjs` bind to 127.0.0.1 unless given `--host` / `host`. `feedback("host", …)` caps the reason at 300 characters, strips control characters and backticks, and quotes it as untrusted data. Tests SEC38 and SEC39. Still open: hosts that do connect aren't authenticated on these tools, so an ack can still be faked by a local program.
 
 **In plain words:** when a host refuses a release, the AI loop passes the host's stated reason to the model as feedback, so the model can fix the problem. The stream server accepts connections from any machine on the network without checking who they are (`ai/stream.mjs` and `tools/publisher.mjs` listen on every interface). So anyone who can reach that port can write text that ends up in the model's prompt. They can also fake an "ack" so a release looks like it went live.
 
@@ -173,7 +179,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** remove the automatic trust in `web/template.html` `onRemote` and always show the trust prompt, with a key fingerprint long enough to compare.
 
-### SEC-06 Messages and downloads have no size limits (Medium, reasoned)
+### SEC-06 Messages and downloads have no size limits (Medium, reasoned) — FIXED (partial)
+
+**Fixed:** a 1 MB `maxPayload` on every WebSocket server that hosts or clients talk to. An oversized message closes the socket with code 1009, and a socket error no longer crashes the server (it used to be unhandled). Layer downloads over `limits.blobMb` (16 MB) reject the manifest. Tests SEC36 and SEC37. Still open: the download cap is checked after the bytes arrive, and the signed per-layer size field isn't built.
 
 **In plain words:** the server host, publishers and fleet controller accept WebSocket messages up to the library default (100 MB). Layer downloads have no size cap either. A misbehaving peer can make a host hold a lot of memory before anything is checked.
 
@@ -183,7 +191,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 ## 4. State, data and correctness
 
-### ST-01 A rollback after a migration runs old code on new data (High, reasoned)
+### ST-01 A rollback after a migration runs old code on new data (High, reasoned) — FIXED
+
+**Fixed:** `revert()` loads each previous version and skips it if its `llp_schema()` differs from the stored `__schema.<slot>`. With none left, it restarts the current version (SEC32 and SEC33). Behaviour change: a release that migrates data down to an older schema (as the `tasks_trap` fixture does) now reverts to the newest version that matches that schema, which may be older than before. `llp_migrate_down` isn't built.
 
 **In plain words:** say version 2 changes how tasks are stored and migrates the saved data. Later, version 2 crashes on some input, and the host rolls that slot back to version 1. The data stays in version 2's format, and the schema marker still says 2. Version 1 then reads and writes data it doesn't understand, which can quietly corrupt it.
 
@@ -211,7 +221,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 
 **Fix:** pass the call's idempotency id to capability providers so payment APIs can deduplicate. Write a pending record before the effect and complete it afterwards, so a failed step leaves a record that can be found and fixed.
 
-### CO-01 One user's bad call rolls the server back for everyone (High, reasoned)
+### CO-01 One user's bad call rolls the server back for everyone (High, reasoned) — FIXED
+
+**Fixed:** on the server, a failed call gets `layer_failed` and the worker restarts on the same version. The slot reverts only when calls from `revertAfterUsers` (default 3) different users fail on that version within `revertWindowMs` (default 60 s), and it logs why (SEC34 and SEC35). Still open: the revert isn't yet reported to the fleet controller as a status.
 
 **In plain words:** on the server, one layer instance serves every user of an app. If a single call fails or runs too long, the server rolls that layer back to the previous version for all users. One user with an unusual input, or a slow moment on the machine, changes which code everyone runs. That can undo a fix that just shipped.
 
@@ -413,6 +425,6 @@ Fix in this order. The first group blocks any serious security review.
 
 ## Not covered
 
-- Browser-specific behaviour: `test/browser.mjs` was not re-run for this review.
+- Browser-specific behaviour: `test/browser.mjs` was not re-run for the original review. It was re-run after the fixes (7/7 pass in Chromium, including the rebuilt demo page).
 - Denial of service against the publisher and controller, beyond the size limits in SEC-06.
 - A formal check of the keyring rotation logic. It was read and its tests pass, but no model checker was used.

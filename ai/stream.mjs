@@ -20,13 +20,15 @@ export async function loadKey(dir = "keys") {
 }
 
 export class StreamServer {
-  constructor({ port, app = "demo.tasks", privateKey }) {
+  // host: listening interface. Default 127.0.0.1 (AI-01): hosts' replies reach the model's prompt,
+  // so only this machine may connect unless the caller opts in with e.g. host: "0.0.0.0".
+  constructor({ port, app = "demo.tasks", privateKey, host = "127.0.0.1" }) {
     this.app = app; this.privateKey = privateKey;
     this.blobs = new Map(); this.current = null; this.version = Date.now();
     this.waiters = new Map(); // version -> resolve
-    this.wss = new WebSocketServer({ port });
+    this.wss = new WebSocketServer({ port, host, maxPayload: 1024 * 1024 });
     this.ready = new Promise((r) => this.wss.once("listening", r));
-    this.wss.on("connection", (ws) => ws.on("message", (raw) => this.onMessage(ws, JSON.parse(raw))));
+    this.wss.on("connection", (ws) => { ws.on("error", () => {}); ws.on("message", (raw) => { try { this.onMessage(ws, JSON.parse(raw)); } catch {} }); });
   }
   get hosts() { return [...this.wss.clients].filter((c) => c.readyState === 1).length; }
   send(ws, msg) { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); }

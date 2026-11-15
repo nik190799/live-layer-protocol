@@ -306,13 +306,15 @@ export class FleetController {
 const pubOf = (jwk) => ({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y });
 
 // WebSocket transport. Returns the server.
-export async function serve(fleet, { port = 7720 } = {}) {
+// host: interface to listen on (default all, since fleet hosts are remote; hosts authenticate, RT-03).
+export async function serve(fleet, { port = 7720, host, maxPayload = 1024 * 1024 } = {}) {
   const { WebSocketServer } = await import("ws");
-  const wss = new WebSocketServer({ port });
+  const wss = new WebSocketServer({ port, host, maxPayload }); // SEC-06: hosts only send small messages
   wss.on("connection", (ws) => {
     const conn = fleet.attach((m) => ws.readyState === 1 && ws.send(JSON.stringify(m)));
     ws.on("message", (raw) => { try { conn.message(JSON.parse(raw)); } catch {} });
     ws.on("close", () => conn.close());
+    ws.on("error", () => {}); // oversized or malformed frames close the socket; never crash the controller
   });
   await new Promise((r) => wss.once("listening", r));
   return wss;
