@@ -1,87 +1,90 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>LLP demo stage</title>
-<!-- The recording stage for tools/demo-gif/record.mjs. The phone on the right is a real Live Host
-     (host/llp-core.js, layers in Web Workers) connected to the real AI publisher over WebSocket.
-     The recorder moves the four steps on the left as the publisher reports each one. -->
+<!-- The recording stage for tools/demo-gif/record.mjs.
+     Right ("With LLP"): two real Live Hosts (host/llp-core.js, layers in Web Workers), each with its own
+     WebSocket to the real AI publisher and its own data. The recorder moves the status line as the
+     publisher reports each step; swap times are what each host measured.
+     Left ("Today"): the usual pipeline with cited industry figures (see docs/BENCHMARK.md for sources).
+     It is an illustration, not a recording, and the page says so. -->
 <style>
 :root { --bg: #0b0f15; --panel: #141b26; --line: #263244; --ink: #f2f5fa; --muted: #8592a6;
   --live: #3ddc97; --bad: #ff5d73; --warn: #ffb347; --accent: #8b9bff; }
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--ink); font: 18px/1.35 Inter, system-ui, sans-serif; }
-.left { position: absolute; left: 64px; top: 52px; width: 640px; }
-h1 { margin: 0; min-height: 132px; font: 800 56px/1.08 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; }
-h1 em { font-style: normal; color: var(--live); } h1 s { text-decoration: none; color: var(--bad); }
-.ask { margin-top: 22px; height: 64px; display: flex; align-items: center; gap: 14px; opacity: 0; transition: opacity .25s; }
-.ask.on { opacity: 1; }
-.ask .who { font: 700 15px/1 "JetBrains Mono", monospace; color: var(--muted); letter-spacing: .08em; }
-.ask .bubble { background: var(--accent); color: #0b0f15; font: 600 26px/1 Inter, sans-serif; padding: 16px 22px; border-radius: 22px 22px 22px 6px; }
-.ask .bubble.typing::after { content: "▍"; }
-.steps { margin-top: 34px; display: flex; flex-direction: column; gap: 14px; }
-.step { display: flex; align-items: center; gap: 18px; transition: opacity .2s; }
-.step .ic { width: 46px; height: 46px; border-radius: 50%; border: 3px solid var(--line); display: grid; place-items: center; font: 800 24px/1 Inter, sans-serif; color: var(--muted); flex: none; }
-.step .tx b { display: block; font: 700 27px/1.15 Inter, sans-serif; color: var(--muted); }
-.step .tx span { display: block; font: 500 18px/1.3 Inter, sans-serif; color: var(--muted); min-height: 23px; }
-.step.active .ic { border-color: var(--accent); color: var(--accent); animation: pulse .8s ease-in-out infinite alternate; }
-.step.active .tx b { color: var(--ink); }
-.step.ok .ic { border-color: var(--live); background: var(--live); color: #0b0f15; } .step.ok .ic::before { content: "✓"; }
-.step.ok .tx b { color: var(--ink); } .step.ok .tx span { color: var(--live); }
-.step.bad .ic { border-color: var(--bad); background: var(--bad); color: #0b0f15; } .step.bad .ic::before { content: "✕"; }
-.step.bad .tx b { color: var(--ink); } .step.bad .tx span { color: var(--bad); }
-.step.off { opacity: .35; } .step.off .tx b { text-decoration: line-through; }
-.step.ok .n, .step.bad .n { display: none; }
-@keyframes pulse { from { box-shadow: 0 0 0 0 rgba(139,155,255,.5); } to { box-shadow: 0 0 0 10px rgba(139,155,255,0); } }
-.foot { position: absolute; left: 64px; bottom: 30px; font: 500 15px "JetBrains Mono", monospace; color: var(--muted); }
-.phone { position: absolute; right: 64px; top: 40px; width: 460px; height: 640px; background: var(--panel); border: 2px solid var(--line); border-radius: 34px; padding: 14px; transition: border-color .3s, box-shadow .3s; }
-.phone.live { border-color: var(--live); box-shadow: 0 0 0 6px rgba(61,220,151,.25); }
-.phone.held { border-color: var(--warn); box-shadow: 0 0 0 6px rgba(255,179,71,.25); }
-.pbar { display: flex; justify-content: space-between; align-items: center; padding: 2px 10px 12px; font: 600 15px "JetBrains Mono", monospace; color: var(--muted); }
-.pbar .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--live); margin-right: 7px; }
-.screen { background: #fff; color: #18202b; border-radius: 22px; padding: 22px; height: 572px; overflow: hidden; position: relative; }
-.badge { position: absolute; left: 50%; bottom: 26px; transform: translate(-50%, 20px); opacity: 0; transition: all .3s; background: #0b0f15; color: #fff; border-radius: 18px; padding: 14px 22px; text-align: center; white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+.top { position: absolute; left: 40px; right: 40px; top: 26px; height: 96px; display: flex; align-items: center; gap: 24px; }
+.top h1 { margin: 0; font: 800 46px/1.05 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; flex: 1; }
+.top h1 em { font-style: normal; color: var(--live); } .top h1 s { text-decoration: none; color: var(--bad); }
+.bubble { background: var(--accent); color: #0b0f15; font: 600 24px/1 Inter, sans-serif; padding: 15px 20px; border-radius: 20px 20px 6px 20px; white-space: nowrap; opacity: 0; transition: opacity .25s; }
+.bubble.on { opacity: 1; } .bubble.typing::after { content: "▍"; }
+.col { position: absolute; top: 140px; bottom: 54px; border-radius: 24px; padding: 22px 26px; }
+.today { left: 40px; width: 470px; background: #17121a; border: 2px solid #3a2530; }
+.llp { left: 530px; right: 40px; background: #0f1a17; border: 2px solid #1f4436; }
+.col h2 { margin: 0 0 14px; font: 800 20px/1 "JetBrains Mono", monospace; letter-spacing: .14em; }
+.today h2 { color: #ff8a9b; } .llp h2 { color: var(--live); }
+.rows { display: flex; flex-direction: column; gap: 13px; }
+.row { display: flex; gap: 14px; align-items: flex-start; opacity: 0; transform: translateY(6px); transition: all .3s; }
+.row.on { opacity: 1; transform: none; }
+.row .ic { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center; font: 800 18px/1 Inter, sans-serif; background: #2a1f27; color: #ff8a9b; }
+.row b { display: block; font: 700 22px/1.2 Inter, sans-serif; }
+.row span { display: block; font: 500 17px/1.3 Inter, sans-serif; color: var(--muted); }
+.row.badrow .ic { background: var(--bad); color: #17121a; } .row.badrow b { color: #ff8a9b; }
+.total { position: absolute; left: 26px; right: 26px; bottom: 20px; padding-top: 14px; border-top: 1px solid #3a2530; opacity: 0; transition: opacity .3s; }
+.total.on { opacity: 1; }
+.total b { display: block; font: 800 40px/1 "Inter Display", Inter, sans-serif; color: #ff8a9b; }
+.total span { display: block; margin-top: 6px; font: 500 17px Inter, sans-serif; color: var(--muted); }
+.status { font: 700 22px/1.2 Inter, sans-serif; min-height: 30px; display: flex; gap: 18px; flex-wrap: wrap; }
+.status i { font-style: normal; color: var(--muted); } .status i.ok { color: var(--live); } .status i.bad { color: var(--bad); } .status i.act { color: var(--accent); }
+.phones { position: absolute; left: 26px; right: 26px; top: 100px; bottom: 20px; display: flex; gap: 18px; }
+.phone { flex: 1 1 0; min-width: 0; background: var(--panel); border: 2px solid var(--line); border-radius: 26px; padding: 10px; display: flex; flex-direction: column; position: relative; transition: border-color .3s, box-shadow .3s; }
+.phone.live { border-color: var(--live); box-shadow: 0 0 0 5px rgba(61,220,151,.22); }
+.phone.held { border-color: var(--warn); box-shadow: 0 0 0 5px rgba(255,179,71,.22); }
+.pbar { display: flex; justify-content: space-between; padding: 2px 8px 8px; font: 600 13px "JetBrains Mono", monospace; color: var(--muted); }
+.screen { flex: 1; min-width: 0; background: #fff; color: #18202b; border-radius: 18px; padding: 16px; overflow: hidden; }
+.badge { position: absolute; left: 50%; bottom: 16px; transform: translate(-50%, 16px); opacity: 0; transition: all .3s; background: #0b0f15; color: #fff; border-radius: 14px; padding: 10px 16px; text-align: center; white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
 .badge.on { opacity: 1; transform: translate(-50%, 0); }
-.badge b { display: block; font: 800 40px/1 "Inter Display", Inter, sans-serif; }
-.badge span { display: block; margin-top: 6px; font: 600 17px/1.2 Inter, sans-serif; color: #c9d2e0; }
-.badge.ok b { color: var(--live); } .badge.warn b { color: var(--warn); }
-.slot + .slot { margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e3e7ee; }
-.u-col { display: flex; flex-direction: column; gap: 9px; }
-.u-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.u-row > .u-input { flex: 1 1 140px; } .u-row > .u-toggle { flex: 1 1 auto; }
-.u-heading { font: 800 30px/1.1 "Inter Display", Inter, sans-serif; margin: 0; }
-.u-label { color: #657085; font-size: 16px; }
-.u-big { font: 800 26px/1 "Inter Display", Inter, sans-serif; }
-.u-button { font: 600 16px/1 Inter, sans-serif; padding: 10px 14px; border-radius: 11px; border: 1px solid #e3e7ee; background: #eef1f6; color: #18202b; }
+.badge b { display: block; font: 800 32px/1 "Inter Display", Inter, sans-serif; color: var(--live); }
+.badge span { display: block; margin-top: 4px; font: 600 14px Inter, sans-serif; color: #c9d2e0; }
+.badge.warn b { color: var(--warn); }
+.slot + .slot { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e3e7ee; }
+.u-col { display: flex; flex-direction: column; gap: 7px; }
+.u-row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
+.u-row > .u-input { flex: 1 1 100px; } .u-row > .u-toggle { flex: 1 1 auto; }
+.u-heading { font: 800 24px/1.1 "Inter Display", Inter, sans-serif; margin: 0; }
+.u-label { color: #657085; font-size: 14px; }
+.u-big { font: 800 21px/1 "Inter Display", Inter, sans-serif; }
+.u-button { font: 600 14px/1 Inter, sans-serif; padding: 7px 10px; border-radius: 9px; border: 1px solid #e3e7ee; background: #eef1f6; color: #18202b; }
 .u-button[data-style="primary"] { background: #2c46e8; border-color: #2c46e8; color: #fff; }
-.u-input { font: 17px Inter, sans-serif; padding: 10px 12px; border-radius: 11px; border: 1px solid #e3e7ee; min-width: 0; }
-.u-toggle { display: flex; align-items: center; gap: 12px; padding: 7px 2px; border: 0; border-bottom: 1px solid #e3e7ee; background: none; font: 19px Inter, sans-serif; color: #18202b; text-align: left; width: 100%; }
-.u-toggle .box { width: 23px; height: 23px; border-radius: 7px; border: 2px solid #657085; flex: none; display: grid; place-items: center; }
+.u-input { font: 15px Inter, sans-serif; padding: 7px 10px; border-radius: 9px; border: 1px solid #e3e7ee; min-width: 0; }
+.u-toggle { display: flex; align-items: center; gap: 10px; padding: 5px 2px; border: 0; border-bottom: 1px solid #e3e7ee; background: none; font: 16px Inter, sans-serif; color: #18202b; text-align: left; width: 100%; }
+.u-toggle .box { width: 19px; height: 19px; border-radius: 6px; border: 2px solid #657085; flex: none; display: grid; place-items: center; }
 .u-toggle[aria-pressed="true"] .box { background: #12855a; border-color: #12855a; }
-.u-toggle[aria-pressed="true"] .box::after { content: ""; width: 10px; height: 5px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
+.u-toggle[aria-pressed="true"] .box::after { content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); }
 .u-toggle[aria-pressed="true"] .t { color: #657085; text-decoration: line-through; }
-.u-progress { height: 12px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
-.u-progress > i { display: block; height: 100%; background: #12855a; transition: width .3s; }
+.u-progress { height: 10px; border-radius: 99px; background: #eef1f6; overflow: hidden; }
+.u-progress > i { display: block; height: 100%; background: #12855a; }
 .new { animation: glow 2.4s ease-out; border-radius: 8px; }
-@keyframes glow { 0%, 50% { box-shadow: 0 0 0 4px #3ddc97; background: rgba(61,220,151,.12); } 100% { box-shadow: 0 0 0 4px transparent; } }
-.end { position: absolute; inset: 0; background: var(--bg); display: none; flex-direction: column; justify-content: center; padding: 0 110px; }
+@keyframes glow { 0%, 50% { box-shadow: 0 0 0 3px #3ddc97; background: rgba(61,220,151,.12); } 100% { box-shadow: 0 0 0 3px transparent; } }
+.src { position: absolute; left: 40px; right: 40px; bottom: 18px; font: 500 13px "JetBrains Mono", monospace; color: #6b7789; }
+.end { position: absolute; inset: 0; background: var(--bg); display: none; flex-direction: column; justify-content: center; padding: 0 90px; }
 .end.on { display: flex; }
-.end h2 { font: 800 76px/1.04 "Inter Display", Inter, sans-serif; letter-spacing: -0.03em; margin: 0; }
+.end h2 { font: 800 60px/1.05 "Inter Display", Inter, sans-serif; letter-spacing: -0.03em; margin: 0 0 34px; }
 .end h2 em { font-style: normal; color: var(--live); }
-.end p { margin: 30px 0 0; font: 500 30px/1.4 Inter, sans-serif; color: #c9d2e0; }
-.end .repo { margin-top: 40px; font: 600 22px "JetBrains Mono", monospace; color: var(--muted); }
+.end table { border-collapse: collapse; font: 600 27px/1.2 Inter, sans-serif; }
+.end th { font: 800 18px "JetBrains Mono", monospace; letter-spacing: .14em; text-align: left; padding: 0 30px 12px 0; }
+.end th.t { color: #ff8a9b; } .end th.l { color: var(--live); }
+.end td { padding: 12px 30px 12px 0; border-top: 1px solid var(--line); }
+.end td:first-child { color: var(--muted); font-weight: 500; } .end td.t { color: #ffb3bf; } .end td.l { color: var(--live); }
+.end .src2 { margin-top: 30px; font: 500 14px "JetBrains Mono", monospace; color: #6b7789; }
 </style>
-<div class="left">
-  <h1 id="title"></h1>
-  <div class="ask" id="ask"><span class="who">YOU → AI</span><span class="bubble" id="bubble"></span></div>
-  <div class="steps" id="steps">
-    <div class="step" id="s1"><div class="ic"><span class="n">1</span></div><div class="tx"><b>AI writes the code</b><span></span></div></div>
-    <div class="step" id="s2"><div class="ic"><span class="n">2</span></div><div class="tx"><b>Safety check runs it</b><span></span></div></div>
-    <div class="step" id="s3"><div class="ic"><span class="n">3</span></div><div class="tx"><b>You approve</b><span></span></div></div>
-    <div class="step" id="s4"><div class="ic"><span class="n">4</span></div><div class="tx"><b>Live in the running app</b><span></span></div></div>
-  </div>
-</div>
-<div class="foot">Real recording · Live Layer Protocol</div>
-<div class="phone" id="phone"><div class="pbar"><span><span class="dot"></span>Tasks app · running</span><span id="build">build 1</span></div>
-  <div class="screen" id="screen"></div><div class="badge" id="badge"><b></b><span></span></div></div>
+<div class="top"><h1 id="title"></h1><span class="bubble" id="bubble"></span></div>
+<div class="col today"><h2>TODAY</h2><div class="rows" id="rows"></div><div class="total" id="total"><b></b><span></span></div></div>
+<div class="col llp"><h2>WITH LLP · LIVE RECORDING</h2><div class="status" id="status"></div>
+  <div class="phones">
+    <div class="phone" id="p0"><div class="pbar"><span>Ana's phone</span><span class="build">build 1</span></div><div class="screen"></div><div class="badge"><b></b><span></span></div></div>
+    <div class="phone" id="p1"><div class="pbar"><span>Ben's phone</span><span class="build">build 1</span></div><div class="screen"></div><div class="badge"><b></b><span></span></div></div>
+  </div></div>
+<div class="src" id="src">Today: CircleCI 2024 State of Software Delivery (average CI workflow 2 min 49 s, average recovery 57 min). Illustration, not a recording.</div>
 <div class="end" id="end"></div>
 <script type="module">
 import { LiveHost, b64 } from "/host/llp-core.js";
@@ -90,66 +93,77 @@ const q = new URLSearchParams(location.search);
 const trusted = await (await fetch("/key")).json();
 
 function txt(n) { return (n.c || []).filter((c) => c.k === "text").map((c) => c.t).join(""); }
-function make(n, slot) {
-  const a = n.a || {}; let el;
-  switch (n.k) {
-    case "text": return document.createTextNode(n.t);
-    case "heading": el = document.createElement("h3"); el.className = "u-heading"; el.textContent = txt(n); return el;
-    case "label": el = document.createElement("div"); el.className = "u-label"; el.textContent = txt(n); return el;
-    case "big": el = document.createElement("div"); el.className = "u-big"; el.textContent = txt(n); return el;
-    case "button": el = document.createElement("button"); el.className = "u-button"; el.textContent = txt(n); el.dataset.id = a.id;
-      if (a.style) el.dataset.style = a.style; el.onclick = () => host.dispatch(slot, a.id); return el;
-    case "toggle": el = document.createElement("button"); el.className = "u-toggle"; el.dataset.id = a.id; el.setAttribute("aria-pressed", a.on === "1");
-      el.innerHTML = '<span class="box"></span><span class="t"></span>'; el.lastChild.textContent = txt(n); el.onclick = () => host.dispatch(slot, a.id); return el;
-    case "input": el = document.createElement("input"); el.className = "u-input"; el.id = `in-${a.bind}`; el.placeholder = a.placeholder || "";
-      el.value = host.kv.get(a.bind) ?? ""; el.oninput = () => host.setBound(a.bind, el.value);
-      el.onkeydown = (e) => { if (e.key === "Enter" && a.submit) host.dispatch(slot, a.submit); }; return el;
-    case "progress": el = document.createElement("div"); el.className = "u-progress"; el.innerHTML = "<i></i>"; el.firstChild.style.width = (+a.value || 0) + "%"; return el;
-    default: el = document.createElement("div"); el.className = "u-" + (["col", "row"].includes(n.k) ? n.k : "col");
-      for (const c of n.c || []) el.appendChild(make(c, slot)); return el;
-  }
-}
-// After a swap, outline what the new version added (elements whose kind and text weren't on screen before).
-let prevKeys = null, glowNext = false;
-const keyOf = (el) => el.className + "|" + (el.dataset.id?.replace(/\d+$/, "") ?? "") + "|" + (el.children.length ? "" : el.textContent.replace(/\d+/g, "#"));
-function paint(slots) {
-  const f = document.activeElement, keep = f?.id?.startsWith("in-") ? f.id : null;
-  const frag = document.createDocumentFragment();
-  for (const s of slots) { const box = document.createElement("div"); box.className = "slot"; box.appendChild(s.error ? document.createTextNode(s.error) : make(s.tree, s.slot)); frag.appendChild(box); }
-  $("screen").replaceChildren(frag);
-  const els = [...$("screen").querySelectorAll(".slot:first-child [class^=u-]")];
-  if (glowNext && prevKeys) for (const el of els) if (!prevKeys.has(keyOf(el))) el.classList.add("new");
-  glowNext = false; prevKeys = new Set(els.map(keyOf));
-  if (keep) $(keep)?.focus();
-}
+const keyOf = (el) => el.className.split(" ")[0] + "|" + (el.dataset.id?.replace(/\d+$/, "") ?? "") + "|" + (el.children.length ? "" : el.textContent.replace(/\d+/g, "#"));
 
-let build = 0;
-const host = new LiveHost({ app: "demo.tasks", trustedKeys: [trusted], capabilities: { haptic: async () => "ok" }, onRender: paint, onLog: () => {} });
-const ws = new WebSocket(`ws://127.0.0.1:${q.get("port")}`);
-const pending = new Map();
-const send = (m) => ws.send(JSON.stringify(m));
-ws.onopen = () => send({ t: "hello", llp: 1, app: "demo.tasks", version: host.version, have: [...host.blobs.keys()] });
-ws.onmessage = async (ev) => {
-  const msg = JSON.parse(ev.data);
-  if (msg.t === "blob") pending.get(msg.hash)?.(b64.dec(msg.data));
-  if (msg.t === "manifest") {
-    glowNext = build > 0;
-    const r = await host.apply(msg.manifest, msg.sig, (h) => new Promise((res) => { pending.set(h, res); send({ t: "want", hashes: [h] }); }));
-    send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, code: r.code, reason: r.reason });
-    if (r.ok) { build++; window.stage.swaps.push({ build, ms: r.ms, tasks: host.kv.get("tasks.n") ?? 0 }); $("build").textContent = `build ${build}`; }
+// One device: a Live Host with its own data and its own connection to the publisher.
+function device(i, tasks) {
+  const root = $("p" + i), screen = root.querySelector(".screen");
+  const d = { i, root, swaps: [], build: 0, prevKeys: null, glowNext: false };
+  function make(n, slot) {
+    const a = n.a || {}; let el;
+    switch (n.k) {
+      case "text": return document.createTextNode(n.t);
+      case "heading": el = document.createElement("h3"); el.className = "u-heading"; el.textContent = txt(n); return el;
+      case "label": el = document.createElement("div"); el.className = "u-label"; el.textContent = txt(n); return el;
+      case "big": el = document.createElement("div"); el.className = "u-big"; el.textContent = txt(n); return el;
+      case "button": el = document.createElement("button"); el.className = "u-button"; el.textContent = txt(n); el.dataset.id = a.id;
+        if (a.style) el.dataset.style = a.style; el.onclick = () => d.host.dispatch(slot, a.id); return el;
+      case "toggle": el = document.createElement("button"); el.className = "u-toggle"; el.dataset.id = a.id; el.setAttribute("aria-pressed", a.on === "1");
+        el.innerHTML = '<span class="box"></span><span class="t"></span>'; el.lastChild.textContent = txt(n); el.onclick = () => d.host.dispatch(slot, a.id); return el;
+      case "input": el = document.createElement("input"); el.className = "u-input"; el.dataset.bind = a.bind; el.placeholder = a.placeholder || "";
+        el.value = d.host.kv.get(a.bind) ?? ""; el.oninput = () => d.host.setBound(a.bind, el.value);
+        el.onkeydown = (e) => { if (e.key === "Enter" && a.submit) d.host.dispatch(slot, a.submit); }; return el;
+      case "progress": el = document.createElement("div"); el.className = "u-progress"; el.innerHTML = "<i></i>"; el.firstChild.style.width = (+a.value || 0) + "%"; return el;
+      default: el = document.createElement("div"); el.className = "u-" + (["col", "row"].includes(n.k) ? n.k : "col");
+        for (const c of n.c || []) el.appendChild(make(c, slot)); return el;
+    }
   }
-};
+  function paint(slots) {
+    const frag = document.createDocumentFragment();
+    for (const s of slots) { const box = document.createElement("div"); box.className = "slot"; box.appendChild(s.error ? document.createTextNode(s.error) : make(s.tree, s.slot)); frag.appendChild(box); }
+    screen.replaceChildren(frag);
+    const els = [...screen.querySelectorAll(".slot:first-child [class^=u-]")];
+    if (d.glowNext && d.prevKeys) for (const el of els) if (!d.prevKeys.has(keyOf(el))) el.classList.add("new");
+    d.glowNext = false; d.prevKeys = new Set(els.map(keyOf));
+  }
+  d.host = new LiveHost({ app: "demo.tasks", trustedKeys: [trusted], capabilities: { haptic: async () => "ok" }, onRender: paint, onLog: () => {} });
+  // This device's own data, already there before the stream connects (state is host-owned and survives every swap).
+  tasks.forEach(([t, done], k) => { d.host.kv.set(`tasks.${k}.text`, t); d.host.kv.set(`tasks.${k}.done`, done); });
+  d.host.kv.set("tasks.n", tasks.length);
+  const ws = new WebSocket(`ws://127.0.0.1:${q.get("port")}`), pending = new Map();
+  const send = (m) => ws.send(JSON.stringify(m));
+  ws.onopen = () => send({ t: "hello", llp: 1, app: "demo.tasks", version: d.host.version, have: [] });
+  ws.onmessage = async (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.t === "blob") pending.get(msg.hash)?.(b64.dec(msg.data));
+    if (msg.t === "manifest") {
+      d.glowNext = d.build > 0;
+      const r = await d.host.apply(msg.manifest, msg.sig, (h) => new Promise((res) => { pending.set(h, res); send({ t: "want", hashes: [h] }); }));
+      send(r.ok ? { t: "ack", version: r.version, ms: r.ms } : { t: "nack", version: r.version, code: r.code, reason: r.reason });
+      if (r.ok) { d.build++; d.swaps.push({ build: d.build, ms: r.ms, tasks: d.host.kv.get("tasks.n") ?? 0 }); root.querySelector(".build").textContent = `build ${d.build}`; }
+    }
+  };
+  return d;
+}
+const devices = [
+  device(0, [["Buy milk", 1], ["Call mom", 0], ["Ship the demo", 0]]),
+  device(1, [["Book flights", 0], ["Gym at 6", 1], ["Pay rent", 1], ["Read SPEC", 0]]),
+];
 
 window.stage = {
-  swaps: [], host,
+  devices,
+  ready() { return devices.every((d) => d.build === 1); },
+  swaps() { return devices.map((d) => d.swaps.at(-1)); },
+  state() { return devices.map((d) => ({ n: d.host.kv.get("tasks.n") ?? 0, build: d.build })); },
   title(html) { $("title").innerHTML = html; },
-  ask(text) { $("ask").classList.toggle("on", text !== null); $("bubble").textContent = text ?? ""; },
+  ask(text) { $("bubble").classList.toggle("on", text !== null); $("bubble").textContent = text ?? ""; },
   typing(on) { $("bubble").classList.toggle("typing", on); },
-  step(n, state, detail = "") { const s = $("s" + n); s.className = "step " + state; s.querySelector(".tx span").textContent = detail; },
-  steps(state) { for (let n = 1; n <= 4; n++) this.step(n, state); },
-  phone(state) { $("phone").className = "phone " + (state || ""); },
-  badge(big, small, cls = "ok") { const b = $("badge"); if (big === null) return b.classList.remove("on"); b.className = "badge on " + cls; b.firstChild.textContent = big; b.lastChild.textContent = small; },
+  status(items) { $("status").innerHTML = items.map(([c, t]) => `<i class="${c}">${t}</i>`).join(""); },
+  rows(list) { $("rows").innerHTML = list.map(([ic, b, s, bad]) => `<div class="row${bad ? " badrow" : ""}"><div class="ic">${ic}</div><div><b>${b}</b><span>${s}</span></div></div>`).join(""); $("total").classList.remove("on"); },
+  showRow(i) { $("rows").children[i]?.classList.add("on"); },
+  total(big, small) { const t = $("total"); t.firstChild.textContent = big; t.lastChild.textContent = small; t.classList.add("on"); },
+  phones(state) { for (const d of devices) d.root.className = "phone " + (state || ""); },
+  badge(i, big, small, cls = "") { const b = devices[i].root.querySelector(".badge"); if (big === null) return b.classList.remove("on"); b.className = "badge on " + cls; b.firstChild.textContent = big; b.lastChild.textContent = small; },
   end(html) { $("end").innerHTML = html; $("end").classList.add("on"); },
-  state() { return { n: host.kv.get("tasks.n") ?? 0, build, main: host.slots.get("main")?.hash?.slice(0, 8) }; },
 };
 </script>
