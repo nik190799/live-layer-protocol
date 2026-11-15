@@ -17,7 +17,8 @@
     "bench": "node bench/run.mjs",
     "bench:hosts": "node bench/hosts.mjs",
     "case-studies": "node case-studies/run.mjs",
-    "test:cases": "node case-studies/run.mjs --no-write"
+    "test:cases": "node case-studies/run.mjs --no-write",
+    "redteam": "node test/redteam.mjs"
   },
   "keywords": [],
   "author": "",

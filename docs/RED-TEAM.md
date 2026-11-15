@@ -313,4 +313,78 @@ Reports are unauthenticated, so they can't safely drive automatic decisions. RT-
 
 **In plain words:** regulators and platform owners want to know who changed what, and when. LLP can change code many times a day.
 
-**Fix:** keep a signed, append-only release log (who signed, what changed, which capabilities) that can be published, in the style of Sigstore's Rekor transparency log. Google Play's interpreter rule probably covers LLP, but that is not yet verified (see the case-studies memory).
+**Fix:** keep a signed, append-only release log (who signed, what changed, which capabilities) that can be published, in the style of Sigstore's Rekor transparency log. Google Play's interpreter rule probably covers LLP, but that is not yet verified; see `docs/CASE-STUDIES.md`.
+
+## 9. Threat model (what LLP must survive)
+
+A standard needs this written down. Here is a first version. Each row names the attacker, what LLP promises against them today, and which findings close the gap.
+
+| Who | Can do | LLP should guarantee | Today |
+|---|---|---|---|
+| Someone on the network | Read and change traffic | No code runs unless a trusted key signed it; tampering is detected | Yes (signatures and hashes), except RT-01 and AI-01 |
+| A relay, CDN or server host | Delay, drop or replay releases | Hosts notice when they're stale | No: SEC-01 |
+| A user of the app | Send any input or call | Their input can't change code or read other users' data | No: CO-01, PR-01 |
+| A third-party layer | Run code inside the host | Sandboxed time, memory and UI; only its own data and declared capabilities | Partly: sandbox yes, RT-04 and AI-03 no |
+| An AI publisher, mistaken or misled | Write any layer | Shadow check, human approval, staged rollout, visible capability changes | Partly: AI-02 to AI-04 |
+| A leaked release key | Sign releases | Rotation revokes it everywhere, quickly, with no permanent damage | Partly: RT-02, RT-03, FL-02 |
+| A leaked root key | Sign keyrings | Needs a threshold of keys; root keys are offline | Supported in code, but SEC-02 |
+| A program on the same computer | Talk to `llpd` | Can't change apps or read their data | No: SEC-04 |
+
+## 10. Governance, versioning and interoperability
+
+### GOV-01 The protocol has no version of its own (High, design)
+
+**In plain words:** manifests and messages don't say which version of LLP they follow. Once two versions exist, a host can't tell whether it understands a message.
+
+**Fix:** add `"llp": 1` to the manifest (signed) and to `hello`. Define which fields can be ignored and which must be understood, so an unknown required field means "refuse".
+
+### GOV-02 Only one implementation, and the spec isn't precise enough for a second (High, design)
+
+**In plain words:** standards bodies want two independent implementations that agree. The spec leaves things out: canonical JSON for unusual numbers and Unicode, the full worker ABI behaviour on edge cases, error strings, and what "balanced UI" means exactly.
+
+**Fix:** use RFC 8785 (JSON Canonicalization Scheme) instead of the home-grown `canonical()`. Publish a conformance suite of test vectors (manifests, signatures, layers and expected results) that any host can run (`test/interop.mjs` is a start). Then build a second host in another language, for example Rust with Wasmtime.
+
+### GOV-03 A custom ABI instead of the WebAssembly Component Model (Medium, known gap)
+
+**Fix:** define the ABI in WIT now, even if the browser host keeps the current shim, so other toolchains can generate bindings.
+
+### GOV-04 No open governance (Medium, design)
+
+**In plain words:** companies adopt protocols they can influence and that won't change under them. The repository is private and unlicensed (`"license": "UNLICENSED"`).
+
+**Fix:** pick an open licence (Apache-2.0 is common for protocols), publish the spec separately from the code, and write a change process with numbered proposals. Later, bring it to a neutral foundation such as OpenSSF, CNCF or the Bytecode Alliance.
+
+## 11. Developer and LLM experience, and the adoption story
+
+- **DX-01 (Medium):** debugging a live layer is hard. A failed call's logs are dropped and errors point at wasm, not source. **Fix:** keep logs on failure and ship source maps with the layer (hashed with it).
+- **DX-02 (Medium):** the AssemblyScript SDK is the only first-class one; C has a header. **Fix:** generate SDKs from WIT (GOV-03) for Rust, Go (TinyGo) and JavaScript (via a JS-in-wasm engine).
+- **DX-03 (Low):** the AI system prompt hard-codes the demo app (`tasks.n`). **Fix:** describe the state keys and invariants per app in a file the loop reads.
+- **ADOPT-01:** the relatable pitch is "update a running app the way you edit a shared document: it changes in place, nobody loses their work, and a bad change undoes itself." The strongest proof is `docs/CASE-STUDIES.md`. To be accepted worldwide it needs the open licence and second implementation (GOV-02, GOV-04), a hosted controller people can try in minutes, and one real app in production.
+
+## 12. Priorities
+
+Fix in this order. The first group blocks any serious security review.
+
+| Order | Finding | Severity | Proof | Effort |
+|---|---|---|---|---|
+| 1 | RT-01 fail closed without keys | Critical | Proven | Small |
+| 2 | ST-02 durable server state | Critical (backends) | Reasoned, known | Large |
+| 3 | RT-02 bound versions, key-epoch ordering | High | Proven | Small |
+| 4 | RT-03 authenticate hosts to the controller | High | Proven | Medium |
+| 5 | RT-04 per-slot state isolation | High | Proven | Medium |
+| 6 | AI-03 declared capabilities per slot | High | Reasoned | Medium |
+| 7 | CO-01 no server-wide revert on one call | High | Reasoned | Small |
+| 8 | ST-01 no revert across a schema change | High | Reasoned | Small |
+| 9 | AI-01 localhost by default, treat host text as data | High | Reasoned | Small |
+| 10 | PR-01 read rules on shared data | High | Reasoned, known | Medium |
+| 11 | SEC-01 freshness (timestamp role) | High | Reasoned, known | Medium |
+| 12 | RT-06 fleet controller counts | High | Proven | Small |
+| 13 | GOV-01 protocol version field | High | Design | Small |
+| 14 | SEC-02 key custody | High | Reasoned | Medium |
+| 15 | Everything else | Medium/Low | Mixed | Mixed |
+
+## Not covered
+
+- Browser-specific behaviour: `test/browser.mjs` was not re-run for this review.
+- Denial of service against the publisher and controller, beyond the size limits in SEC-06.
+- A formal check of the keyring rotation logic. It was read and its tests pass, but no model checker was used.
