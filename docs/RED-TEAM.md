@@ -212,3 +212,47 @@ A busy device can cut off an honest layer. The fix is already noted in the spec:
 **In plain words:** a layer can keep adding keys until the device or server runs out of memory or disk.
 
 **Fix:** set a quota per slot, counted in keys and bytes and declared in the manifest. Writes past it fail the call, the same way a trap does.
+
+## 5. Fleet operations, scale and performance
+
+### RT-06 The fleet controller slows down with the square of the number of hosts (High, proven)
+
+**In plain words:** while a rollout waits for hosts to report, every status message makes the controller recount every host. Doubling the fleet roughly quadruples the work. Measured on this VM, one status report from each host took:
+
+| Hosts | Time |
+|---|---|
+| 4,000 | 132 ms |
+| 16,000 | 3.6 s |
+| 32,000 | 10.7 s |
+
+At that growth rate, one round of reports from a million devices would take hours. This is one proven cause of slowness at scale. It doesn't fully explain the earlier 10,000-host run that didn't finish, which also ran every host as a real connection.
+
+**Where:** `tools/fleet.mjs`, where `tick()` runs on every `hello` and `status` and calls `convergence()`, which loops over all hosts.
+
+**Safe behaviour:** each report costs the same no matter how big the fleet is.
+
+**Fix:** keep running counts per channel and state, update them when a host's record changes, and have `convergence()` read the counts. Shard the controller by channel or host-id prefix, so a million devices don't depend on one process.
+
+### FL-01 Channels and the server host don't work together (High, known gap)
+
+**In plain words:** with a beta group on v8 and everyone else on v7, the server only keeps v7's server code alive for 30 seconds, so stable users' calls start failing.
+
+**Fix:** the server keeps every channel's current server slots live, keyed by version (see SPEC section 11).
+
+### FL-02 A restarted host can trust a revoked key again (High, known gap)
+
+**In plain words:** a host that restarts without its saved key list goes back to the keys it was installed with, including ones that have since been revoked, until it reconnects.
+
+**Fix:** make `--trust-dir` the default rather than an option. Refuse to start if the saved file exists but can't be read. Add SEC-01's freshness note so an out-of-date host notices.
+
+### FL-03 Offline hosts are remembered forever (Low, reasoned)
+
+**In plain words:** every host id ever seen stays in the controller's list, so one long-dead device keeps a channel from ever counting as "complete".
+
+**Fix:** retire host records after a configurable time offline, and report them separately as "lost".
+
+### PERF-01 Per-tenant and per-worker costs (Medium, known gap)
+
+A tenant runs one call at a time (4,000 to 7,000 simple calls per second), and each busy tenant's layer worker costs about 9 MB. One user can fill a tenant's queue of 256 calls and push everyone else into `overloaded`.
+
+**Fix:** add per-user queue limits inside a tenant, read-only concurrent calls, and a way for many small tenants to share a worker.

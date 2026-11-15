@@ -71,5 +71,22 @@ const fetchBlob = async () => tasks;
   host.close();
 }
 
+// RT-06: while a rollout waits, every status message rescans every host, so a round of reports
+// costs O(hosts^2). Linear would be 4x for 4x the hosts; this measures the real ratio.
+{
+  const round = async (N) => {
+    const f = await FleetController.create({ app: "demo.tasks" });
+    const v = await f.publish("stable", { main: await f.addBlob(tasks) });
+    const conns = [];
+    for (let i = 0; i < N; i++) { const c = f.attach(() => {}); c.message({ t: "hello", host: "h" + i, channel: "stable", version: 0, keyring: 1 }); conns.push(c); }
+    f.waitForConvergence("stable", 60000);
+    const t = performance.now();
+    for (let i = 0; i < N; i++) conns[i].message({ t: "status", host: "h" + i, channel: "stable", version: v, keyring: 1, target: v, state: "live" });
+    return performance.now() - t;
+  };
+  const a = await round(2000), b = await round(8000);
+  report("RT-06 fleet controller cost grows with hosts squared", b / a > 8, `2,000 hosts ${a.toFixed(0)} ms, 8,000 hosts ${b.toFixed(0)} ms (x${(b / a).toFixed(1)} for x4 hosts)`);
+}
+
 console.log(`\n${out.filter((x) => x.confirmed).length} of ${out.length} findings still hold`);
 process.exit(0);
