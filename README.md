@@ -25,6 +25,7 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/fleet.mjs` | 28 fleet tests: a 48-host simulation plus 20 hosts in 4 real processes over WebSocket |
 | `host/server-host.mjs`, `host/remote-client.mjs`, `layers/server/` | Server/edge host and client link: shared data, secrets, heavy compute (SPEC section 10) |
 | `test/hosts.mjs`, `bench/hosts.mjs` | 30 checks of server and client hosts over real WebSockets; scale measurements (`docs/HOSTS.md`) |
+| `case-studies/`, `docs/CASE-STUDIES.md` | CrowdStrike 2024, Knight 2012, Cloudflare 2019, Fastly 2021 and a hotfix replayed the old way and through LLP; `npm run case-studies` (17 checks) |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
 | `service/`, `install/`, `Install-LiveLayer.cmd` | Per-device service, CLI and installers |
 | `web/` | Browser Live Host page (`build.py` inlines the core and layers into `index.html`) |

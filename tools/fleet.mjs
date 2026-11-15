@@ -153,6 +153,10 @@ export class FleetController {
       else { r.pending++; if (r.laggards.length < 10) r.laggards.push(h.id); }
     }
     r.converged = !!T && r.online > 0 && r.pending === 0 && r.rejected === 0 && r.reverted === 0 && r.oldKeyring === 0 && (percent >= 100 ? r.skipped === 0 : true);
+    // converged ignores offline hosts (a phone that's switched off shouldn't block a release). complete
+    // doesn't: every host the controller has ever seen on this channel is on the target. Gate anything
+    // that breaks on mixed versions (a flag flip, a schema change) on complete, not converged.
+    r.complete = r.converged && r.offline === 0;
     return r;
   }
   // The exact hosts a share should reach, from the same bucket function the hosts use.
