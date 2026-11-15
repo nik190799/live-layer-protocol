@@ -69,7 +69,7 @@
      "main"
     ]
    },
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5BddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A==",
    "jwk": {
     "key_ops": [
      "verify"
@@ -94,7 +94,7 @@
      "main"
     ]
    },
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5BddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A",
    "jwk": {
     "key_ops": [
      "verify"
@@ -119,7 +119,7 @@
      "main"
     ]
    },
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNRMf8uG1Z8MM5FRtvtAcSn/LDwltOohEHeSWyLoC6Mtdg==",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5CiibYle2iDumkHBUYUD8kT4sP17tJaubZcZRVltQpDYQ==",
    "jwk": {
     "key_ops": [
      "verify"
@@ -144,7 +144,7 @@
      "main"
     ]
    },
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5BddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A==",
    "jwk": {
     "key_ops": [
      "verify"
@@ -169,7 +169,7 @@
      "main"
     ]
    },
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5BddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A==",
    "jwk": {
     "key_ops": [
      "verify"
@@ -194,7 +194,7 @@
      "main"
     ]
    },
-   "sig": "MEUCIEBIij+4KvWSFiKnb+b3KxTi/0KEDSP13wRtVNCrdjzUAiEAs4A0eCpg881urkkEv47WAJCq1Pi89o4NYV6n2vC/99s=",
+   "sig": "MEQCIFrVhfqr6lLdl7NSBPO1cNMSVfDOHopn5zYYgyx8pleQAiBddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A==",
    "jwk": {
     "key_ops": [
      "verify"
@@ -219,7 +219,7 @@
      "main"
     ]
    },
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/3",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5BddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh",
    "jwk": {
     "key_ops": [
      "verify"
@@ -244,7 +244,7 @@
      "main"
     ]
    },
-   "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A==",
    "jwk": {
     "key_ops": [
      "verify"
@@ -269,7 +269,7 @@
      "main"
     ]
    },
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5BddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A==",
    "jwk": {
     "key_ops": [
      "verify"
@@ -285,7 +285,7 @@
   {
    "name": "signature is over canonical JSON, so key order on the wire doesn't matter",
    "docJson": "{\"order\":[\"main\"],\"version\":7,\"layers\":{\"main\":\"13b11cec0fc0ab9b65f428c4d889e7756cf97e3b2e9427cf1136f9105caffa27\"},\"app\":\"demo.tasks\"}",
-   "sig": "QEiKP7gq9ZIWIqdv5vcrFOL/QoQNI/XfBG1U0Kt2PNSzgDR4KmDzzW6uSQS/jtYAkKrU+Lz2jg1hXqfa8L/32w==",
+   "sig": "WtWF+qvqUt2Xs1IE87Vw0xJV8M4eimfnNhiDLHymV5BddknZhJd8Rpb4+rnr8Dbr2iMEvtS85M6XVLVdR1jh8A==",
    "jwk": {
     "key_ops": [
      "verify"

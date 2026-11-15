@@ -25,10 +25,12 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 | `test/fleet.mjs` | 28 fleet tests: a 48-host simulation plus 20 hosts in 4 real processes over WebSocket |
 | `host/server-host.mjs`, `host/remote-client.mjs`, `layers/server/` | Server/edge host and client link: shared data, secrets, heavy compute (SPEC section 10) |
 | `test/hosts.mjs`, `bench/hosts.mjs` | 30 checks of server and client hosts over real WebSockets; scale measurements (`docs/HOSTS.md`) |
+| `test/channels.mjs` | 15 checks: release channels on the server host with a real fleet controller, partial rollouts, restarts, key rotation |
+| `test/privacy.mjs`, `test/at-rest-hosts.mjs` | 33 checks: per-person export and erase with an audit log, and encryption at rest for the server host, `llpd` and fleet hosts |
 | `case-studies/`, `docs/CASE-STUDIES.md` | CrowdStrike 2024, Knight 2012, Cloudflare 2019, Fastly 2021 and a hotfix replayed the old way and through LLP; `npm run case-studies` (17 checks) |
 | `test/interop.mjs` | Runs a browser-published manifest on the Node host |
 | `impl/go/` | A second, independent Live Host in Go, written from the spec (client host and fleet agent) |
-| `conformance/`, `docs/CONFORMANCE.md` | 158 language-neutral conformance vectors both hosts pass; what the second implementation found in the spec |
+| `conformance/`, `docs/CONFORMANCE.md` | 161 language-neutral conformance vectors both hosts pass; what the second implementation found in the spec |
 | `test/interop-go.mjs` | 14 checks: the JS publisher and fleet controller drive Go hosts (and a mixed Go + JS fleet) over real sockets |
 | `service/`, `install/`, `Install-LiveLayer.cmd` | Per-device service, CLI and installers |
 | `web/` | Browser Live Host page (`build.py` inlines the core and layers into `index.html`) |
@@ -41,7 +43,7 @@ Requires Node 22+. The compiled layers are committed in `build/`, so no compiler
 git clone https://github.com/nik190799/live-layer-protocol.git
 cd live-layer-protocol
 npm install
-npm test          # 121 checks: core rules, the layer sandbox, the service, live over-the-wire attacks, the AI loop, fleet, and server/client hosts
+npm test          # 428 checks: core rules, the conformance vectors, security fixes, the layer sandbox, the service, live over-the-wire attacks, the AI loop, fleet, server/client hosts, channels, privacy and encryption at rest, and the case studies
 ```
 
 ### Watch it update live
@@ -184,9 +186,28 @@ connectServer(host, "ws://server:7800", { app: "demo.shared", token: auth.issue(
 
 Tests: `npm run test:hosts` (30 checks). What each open question in the spec turned out to be, with numbers: `docs/HOSTS.md`.
 
+### Release channels behind a server host
+
+A server host can follow a fleet controller on several channels at once (SPEC 10.5). Each channel gets its own release and server workers over the app's one store, clients behind the server name their channel, and releases that clients outside a partial rollout still run stay served.
+
+```js
+const server = new ServerHost({ authenticate: auth.authenticate, dataDir: "data", dataKey: dataKeyFrom({ command: "secret-tool lookup service llp" }),
+  fleet: { keyring: pinnedKeyring, id: "srv-1" } });
+await server.joinFleet("wss://fleet.example:7720", ["stable", "beta"]);
+await server.listen(7800);
+// on a client: its channel, a stable device id for rollout shares, and the app's keyring
+connectServer(host, "wss://server:7800", { app, token, channel: "beta", id: deviceId, trust: new TrustStore(pinnedKeyring) });
+```
+
+Tests: `npm run test:channels` (15 checks).
+
+### Personal data and encryption at rest
+
+A manifest's signed `personal` field says which keys belong to which person (`"personal": ["server/profiles/"]` makes `server/profiles/alice/...` alice's). `server.exportUser(app, "alice")` and `server.eraseUser(app, "alice")` find, return or delete that data, with the person's call records and payment effects, and write a hash-chained audit entry; the person's devices clear their own copy. `llp export <app>` and `llp erase <app>` do the device side for the local service. With a data key (`dataKey` for the server host, `LLP_DATA_KEY_CMD`, `LLP_DATA_KEY_FILE` or `LLP_DATA_KEY` for `llpd`, `llp` and `fleet-host`), everything saved except public code is AES-256-GCM encrypted (SPEC section 14). Tests: `npm run test:privacy` (33 checks).
+
 ## Second implementation and conformance
 
-`impl/go` is an independent Live Host in Go (wazero for WebAssembly), written from `SPEC.md` without porting the JavaScript. It verifies and swaps layers, migrates, reverts, enforces the sandbox limits, and joins fleets. `conformance/vectors/` holds 158 checks in plain JSON that both hosts pass.
+`impl/go` is an independent Live Host in Go (wazero for WebAssembly), written from `SPEC.md` without porting the JavaScript. It verifies and swaps layers, migrates, reverts, enforces the sandbox limits, and joins fleets. `conformance/vectors/` holds 161 checks in plain JSON that both hosts pass.
 
 ```
 npm run test:conformance        # vectors against the JS host (also part of npm test)

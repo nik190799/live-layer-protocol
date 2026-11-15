@@ -42,6 +42,9 @@ Fixes are tracked here as they land. Each fixed finding has a check in `test/sec
 | SEC-04 local service UI writes | Fixed | Behaviour change: the UI page, its socket and `/status` need the token in `<data>/keys/ui-token` (0600); `llp open` prints the link. `bind` only sets keys bound to an input on the current screen. `/publish` is still open to local programs, but only signed releases get in. |
 | SEC-05 web demo pairing | Fixed | Behaviour change: the demo always asks before trusting a key, even the first, and shows an 80-bit fingerprint to compare with "This device's key" on the other screen (browser test B8). |
 | FL-02 restarted host and revoked keys | Fixed | Behaviour change: `fleet-host.mjs` keeps its trust dir by default (`trust/` beside the pinned keyring); `--no-trust-dir` opts out. An unreadable saved file stops the host. Freshness (SEC-01) remains opt-in. |
+| FL-01 channels on the server host | Fixed | Each channel is a lane with its own release and workers over one store (SPEC 10.5). Releases that clients outside a partial share still run stay served past the window and across restarts. `joinFleet` follows a fleet controller and relays keyrings to clients. Behaviour changes: clients behind a server need a device `id` to join partial shares (without one they wait for 100%); the data dir's `current.json` becomes `releases.json` (read and replaced on start). Clients behind a server report to the server, not the controller. Tests C1-C14. |
+| PR-02 export and erase per person | Fixed, partial | Signed `personal` prefixes (plus `private` ones) say whose a key is. `exportUser` / `eraseUser` on the server host, with a hash-chained audit log; erased call ids leave tombstones so a retry doesn't run twice; the person's devices clear their copy; `llp export|erase` on the device service; self-service opt-in. Data a layer copies outside personal prefixes isn't found, and old disk blocks or backups aren't scrubbed (SPEC 14.5). Tests P1-P14, D6-D7. |
+| PR-03 encryption at rest | Fixed, partial | AES-256-GCM, per record, bound to its file and tenant, for the server data dir, the device service and fleet hosts. Key from an env var, an owner-only file or a keystore command, never beside the data; wrong or missing key refuses to start; plaintext data is sealed on first start with a key; re-keying with `previousDataKeys`. Opt-in: without a key, hosts warn and save plain JSON as before. Browser storage isn't encrypted, and no keystore API is called directly (only through a command). Tests E1-E8, C15, D1-D8, F1-F2. |
 | RT-05 host pinned to an app | Fixed | Behaviour change: a host that checks signatures must be given its `app`. Fleet hosts take it from the keyring, `connectServer` from its `app` option. |
 
 ## 1. Proven findings
@@ -308,7 +311,9 @@ At that growth rate, one round of reports from a million devices would take hour
 
 **Fix:** keep running counts per channel and state, update them when a host's record changes, and have `convergence()` read the counts. Shard the controller by channel or host-id prefix, so a million devices don't depend on one process.
 
-### FL-01 Channels and the server host don't work together (High, known gap)
+### FL-01 Channels and the server host don't work together (High, known gap) — FIXED
+
+**Fixed:** the server host keeps one lane per channel: each with its own release, workers and overlap window, all over the tenant's one store and call queue (SPEC 10.5). Clients send their channel in `hello` and get only that lane's releases, and a client refuses another channel's release even from its own server. During a partial rollout, the releases clients outside the share still run stay served past the window, and are restored after a restart. A server migration on one channel joins the other channels' older code to the migrated data under the expand/contract rule. `joinFleet` connects the server host to a fleet controller, one agent per channel, and relays accepted keyrings to clients behind it. Tests C1 to C14 in `test/channels.mjs`; switching off the pinning or the schema join makes C6 to C8 and C10 fail. Still open: those clients' status reaches the server, not the controller, and freshness notes aren't relayed.
 
 **In plain words:** with a beta group on v8 and everyone else on v7, the server only keeps v7's server code alive for 30 seconds, so stable users' calls start failing.
 
@@ -380,13 +385,17 @@ Reports are unauthenticated, so they can't safely drive automatic decisions. RT-
 
 **Fix:** add read rules per key prefix, for example `shared/users/<user>/` readable only by that user, checked in `ServerHost.flush()` and on `hello`. Without this, LLP can't hold personal data under GDPR or similar laws.
 
-### PR-02 Data can't be found, exported or deleted per person (High, design)
+### PR-02 Data can't be found, exported or deleted per person (High, design) — FIXED (partial)
+
+**Fixed:** a signed `personal` field lists key prefixes whose next path segment names the person (`private` prefixes count too). The server host's `exportUser` returns the person's keys, call results and effects as one snapshot; `eraseUser` deletes them, replaces the log with a snapshot so no erased value stays in the files, deletes the keys from other clients' mirrors and tells the person's devices, which clear their own copy. An erased call id leaves a hashed tombstone, so a retried payment isn't charged twice. Every export and erase goes to a hash-chained audit log that holds no data. Users can do it themselves only if the operator turns on `selfService`. The device service has `llp export|erase <app>`. Tests P1 to P14 in `test/privacy.mjs` and D6, D7 in `test/at-rest-hosts.mjs`. Still open: data a layer copies outside personal prefixes isn't found (the export says so), disk blocks and backups aren't scrubbed, and there are no per-person keys for crypto-shredding.
 
 **In plain words:** privacy laws give people the right to see and delete their data. LLP's key/value store has no notion of whose data a key is.
 
 **Fix:** make key ownership part of the schema (an owner prefix), and give the server host export and delete-by-owner operations with an audit log.
 
-### PR-03 Data on disk isn't encrypted (Medium, reasoned)
+### PR-03 Data on disk isn't encrypted (Medium, reasoned) — FIXED (partial)
+
+**Fixed:** `host/at-rest.mjs` seals each saved record with AES-256-GCM, bound to its file and tenant, so moved or edited records fail to open. The server host's data dir (state, log, releases, audit log, fleet keyring and device key), the device service (app state and releases, the device's publisher key) and fleet hosts (device key, saved keyring) are covered. The key comes from an environment variable, an owner-only file, or a command, which is how an OS keystore is reached. A host refuses to start without its key or with another one, seals plaintext data the first time it starts with a key, and the server host re-keys with `previousDataKeys`. Tests E1 to E8, C15, D1 to D8, F1, F2. Behaviour: opt-in, so without a key hosts warn and save plain JSON as before. Still open: browser storage, per-key sensitivity marks, and direct keystore or hardware-key APIs (only the command path is tested, with a stand-in command).
 
 `llpd` saves each app's state as plain JSON in the user's data folder, and browsers save it in local storage.
 
@@ -412,6 +421,8 @@ A standard needs this written down. Here is a first version. Each row names the 
 | A leaked release key | Sign releases | Rotation revokes it everywhere, quickly, with no permanent damage | Partly: RT-02, RT-03, FL-02 |
 | A leaked root key | Sign keyrings | Needs a threshold of keys; root keys are offline | Supported in code, but SEC-02 |
 | A program on the same computer | Talk to `llpd` | Can't change apps or read their data | No: SEC-04 |
+| Someone with a copy of the disk or a backup | Read saved files | App and personal data can't be read without a key kept elsewhere | Added after the review: opt-in encryption (PR-03) |
+| A person whose data the app holds | Ask to see or delete it | Their data can be found, exported and erased, with a record of it | Added after the review: by key prefix (PR-02) |
 
 ## 10. Governance, versioning and interoperability
 

@@ -30,7 +30,7 @@ const LLPVersion = 1
 // max(running version, clock) (SPEC section 6 step 2).
 const MaxVersionAheadMs = 365 * 24 * 3600 * 1000
 
-var manifestFields = map[string]bool{"llp": true, "app": true, "version": true, "epoch": true, "layers": true, "order": true, "hosts": true, "keys": true, "caps": true, "private": true, "channel": true, "rollout": true, "overlap": true}
+var manifestFields = map[string]bool{"llp": true, "app": true, "version": true, "epoch": true, "layers": true, "order": true, "hosts": true, "keys": true, "caps": true, "private": true, "personal": true, "channel": true, "rollout": true, "overlap": true}
 var hashRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // Limits are the sandbox limits of SPEC section 6.1 and the quotas of section 11.
@@ -398,6 +398,19 @@ func parseRules(m map[string]any, layers map[string]any) (map[string]*keyRule, m
 		}
 		if !valid {
 			return nil, nil, fmt.Errorf("private must be a list of up to 64 shared/ prefixes")
+		}
+	}
+	// personal (SPEC 14.1): key prefixes whose next path segment names the person the key is about.
+	if p, has := m["personal"]; has {
+		l, ok := stringList(p, 64, 256)
+		valid := ok
+		for _, x := range l {
+			if len(x) == 0 || !strings.HasSuffix(x, "/") || strings.HasPrefix(x, "__") {
+				valid = false
+			}
+		}
+		if !valid {
+			return nil, nil, fmt.Errorf(`personal must be a list of up to 64 key prefixes ending in "/" (not __ keys)`)
 		}
 	}
 	if ov, has := m["overlap"]; has && (!IsSafeInteger(ov) || ov.(float64) < 0) {

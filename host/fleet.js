@@ -101,9 +101,12 @@ export class FleetAgent {
   // freshness note, refuses releases older than the one the note names, and reports
   // "freshness-expired" when its note runs out. "refuse" also won't install anything without a valid
   // note (so a fresh install can't be handed an old release from a cache). Default: off.
-  constructor({ host, id, channel, trust, send = () => {}, deviceKey = null, freshness = null }) {
+  // relay (a server host, SPEC 10.5): apply every share of a release, whatever the percent, because
+  // the relay's own clients decide whether they are in it; and pass a re-signed release of the version
+  // already running (a share change) to host.resigned(manifest, sig), so the relay can forward it.
+  constructor({ host, id, channel, trust, send = () => {}, deviceKey = null, freshness = null, relay = false }) {
     if (!id) throw new Error("FleetAgent needs a stable host id");
-    Object.assign(this, { host, id, channel, trust, send, deviceKey, freshness });
+    Object.assign(this, { host, id, channel, trust, send, deviceKey, freshness, relay });
     this.fresh = null;
     this.nonce = null;
     host.trustedKeys = trust.releaseKeys();
@@ -190,8 +193,11 @@ export class FleetAgent {
     this.target = m.version;
     this.percent = m.rollout?.percent ?? 100;
     // A share increase re-signs the same version; hosts already on it have nothing to do.
-    if (cmp === 0) return this.done(this.state === "reverted" ? "reverted" : "live", "already on this version");
-    if (!(await inRollout(m, this.id))) return this.done("skipped", `not in the ${m.rollout.percent}% share`);
+    if (cmp === 0) {
+      if (this.relay && this.host.resigned) { const r = await this.host.resigned(m, msg.sig); if (r && !r.ok) return this.done("rejected", r.reason); }
+      return this.done(this.state === "reverted" ? "reverted" : "live", "already on this version");
+    }
+    if (!this.relay && !(await inRollout(m, this.id))) return this.done("skipped", `not in the ${m.rollout.percent}% share`);
     let r;
     try { r = await this.host.apply(m, msg.sig, fetchBlob); } catch (e) { r = { ok: false, reason: e.message }; }
     return r.ok ? this.done("live", `${r.ms} ms`, { ms: r.ms }) : this.done("rejected", r.reason, { code: r.code });

@@ -196,10 +196,13 @@ S("declared keys: malformed declarations are refused", host(), [
   await apply(M(1, both, { keys: { main: { own: [""] }, footer: {} } }), { ok: false, code: "malformed" }),
   await apply(M(1, both, { caps: { pay: ["charge"] } }), { ok: false, code: "malformed" }),
   await apply(M(1, both, { private: ["users/"] }), { ok: false, code: "malformed" }),
+  await apply(M(1, both, { personal: ["__x/"] }), { ok: false, code: "malformed" }),
+  await apply(M(1, both, { personal: ["profiles"] }), { ok: false, code: "malformed" }),
   await apply(M(1, both, { overlap: -1 }), { ok: false, code: "malformed" }),
   await apply(M(1, both, { hosts: { main: "edge" } }), { ok: false, code: "malformed" }),
   await apply(M(1, both, { order: ["main", "nope"] }), { ok: false, code: "malformed" }),
   await apply(M(1, both, { keys: keysDecl }), { ok: true }),
+  await apply(M(2, both, { llp: 1, keys: keysDecl, caps: {}, personal: ["profiles/"] }), { ok: true }),
 ]);
 S("declared keys: a slot sees only what it owns or reads, and can't write outside what it owns", host(), [
   await apply(M(1, { main: H.tasks }), { ok: true }),

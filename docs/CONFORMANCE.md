@@ -49,8 +49,8 @@ Every vector runs with the clock fixed at 2026-01-01T00:00:00Z. Expected results
 
 | | Vectors | Over the wire |
 |---|---|---|
-| JS reference host | 158 of 158 | — |
-| Go host | 158 of 158 | 14 of 14 (`test/interop-go.mjs`) |
+| JS reference host | 161 of 161 | — |
+| Go host | 161 of 161 | 14 of 14 (`test/interop-go.mjs`) |
 
 The interop test runs the unmodified JavaScript tools against the Go binary over real sockets:
 
