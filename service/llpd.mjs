@@ -4,11 +4,13 @@
 //   node service/llpd.mjs [--port 7710] [--data <dir>]
 //
 // Endpoints (bound to 127.0.0.1 only):
-//   GET  /                 app launcher + UI client
-//   WS   /ui?app=<name>    UI client: receives renders, sends events
-//   WS   /publish          publishers push manifests + blobs (SPEC §5)
-//   GET  /status           JSON status
+//   GET  /?token=<t>             app launcher + UI client (`llp open` prints the URL)
+//   WS   /ui?token=<t>&app=<name> UI client: receives renders, sends events
+//   WS   /publish                publishers push manifests + blobs (SPEC §5); signatures decide
+//   GET  /status?token=<t>       JSON status
+// <t> is the UI token in <data>/keys/ui-token, readable only by this user (SEC-04).
 import { createServer } from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, renameSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir, hostname } from "node:os";
@@ -38,8 +40,25 @@ if (!existsSync(localKeyFile)) {
   writeAtomic(localKeyFile, JSON.stringify({ private: await crypto.subtle.exportKey("jwk", kp.privateKey), public: await crypto.subtle.exportKey("jwk", kp.publicKey) }), 0o600); // owner-only (SEC-02)
   log("created local publisher key");
 }
+// trusted.json is {app: [public keys]}: a key trusted for one app can't update another (SEC-03).
+// Keys under "*" (or an older file that is a plain array) are trusted for every app; that still
+// works, with a warning, so existing setups keep running.
 const trustFile = join(DATA, "keys", "trusted.json");
-const trusted = () => [readJson(localKeyFile).public, ...readJson(trustFile, [])];
+let warnedAll = false;
+const trusted = (name) => {
+  let doc = readJson(trustFile, {});
+  if (Array.isArray(doc)) doc = { "*": doc };
+  if (!doc || typeof doc !== "object") doc = {};
+  const all = Array.isArray(doc["*"]) ? doc["*"] : [], own = Array.isArray(doc[name]) ? doc[name] : [];
+  if (all.length && !warnedAll) { warnedAll = true; log(`warning: ${trustFile} trusts ${all.length} key(s) for every app; trust them per app with "llp trust <key> <app>"`); }
+  return [readJson(localKeyFile).public, ...own, ...all];
+};
+
+// The UI token: only someone who can read this user's data dir can open the UI or read status.
+const tokenFile = join(DATA, "keys", "ui-token");
+if (!existsSync(tokenFile)) writeAtomic(tokenFile, randomBytes(24).toString("hex"), 0o600);
+const TOKEN = readFileSync(tokenFile, "utf8").trim();
+const okToken = (t) => typeof t === "string" && t.length === TOKEN.length && timingSafeEqual(Buffer.from(t), Buffer.from(TOKEN));
 
 // ---------- blob store (content addressed, shared by all apps) ----------
 const blobPath = (h) => join(DATA, "blobs", h + ".wasm");
@@ -60,7 +79,7 @@ function getApp(name) {
   const app = { name, clients: new Set(), last: [], saveTimer: null, logTail: [] };
   app.host = new LiveHost({
     app: name,
-    trustedKeys: trusted(),
+    trustedKeys: trusted(name),
     capabilities: {
       haptic: async (ms) => { broadcast(app, { t: "fx", name: "haptic", arg: ms }); },
       geo: async () => "Location isn't available to desktop apps yet.",
@@ -93,9 +112,13 @@ for (const name of readdirSync(join(DATA, "apps"))) {
 }
 
 // ---------- HTTP + WebSocket ----------
-const uiHtml = () => readFileSync(join(here, "ui.html"), "utf8");
+const uiHtml = () => readFileSync(join(here, "ui.html"), "utf8").replace("__LLP_UI_TOKEN__", TOKEN);
 const server = createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
+  if ((url.pathname === "/" || url.pathname === "/status") && !okToken(url.searchParams.get("token"))) {
+    res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+    return res.end("This needs the UI token. Run \"llp open\" to get the link.\n");
+  }
   if (url.pathname === "/") { res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }); return res.end(uiHtml()); }
   if (url.pathname === "/status") {
     res.writeHead(200, { "content-type": "application/json" });
@@ -117,6 +140,7 @@ wss.on("connection", (ws, req) => {
   const send = (m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
 
   if (url.pathname === "/ui") {
+    if (!okToken(url.searchParams.get("token"))) { send({ t: "error", msg: "This needs the UI token. Run \"llp open\" to get the link." }); return ws.close(); }
     const name = url.searchParams.get("app");
     if (!name) { send({ t: "apps", apps: [...apps.values()].map((a) => ({ name: a.name, version: a.host.version })) }); return; }
     if (!apps.has(name)) { send({ t: "error", msg: `No app named ${name}` }); return ws.close(); }
@@ -127,7 +151,8 @@ wss.on("connection", (ws, req) => {
     ws.on("message", async (raw) => {
       let m; try { m = JSON.parse(raw); } catch { return; }
       if (m.t === "event" && typeof m.slot === "string" && typeof m.id === "string") await app.host.dispatch(m.slot, m.id, String(m.value ?? ""));
-      if (m.t === "bind" && typeof m.key === "string") { app.host.setBound(m.key, String(m.value ?? "")); scheduleSave(app); broadcast(app, { t: "bound", key: m.key, value: m.value, from: m.cid }); }
+      // Only keys bound to an input on the current screen can be set from the UI (SEC-04).
+      if (m.t === "bind" && typeof m.key === "string" && Object.hasOwn(binds(app, app.last), m.key)) { app.host.setBound(m.key, String(m.value ?? "")); scheduleSave(app); broadcast(app, { t: "bound", key: m.key, value: m.value, from: m.cid }); }
     });
     ws.on("close", () => app.clients.delete(ws));
     return;
@@ -142,7 +167,7 @@ wss.on("connection", (ws, req) => {
       const name = m.manifest?.app;
       if (!validName(name || "")) return send({ t: "nack", version: m.manifest?.version, reason: "invalid app name" });
       const app = getApp(name);
-      app.host.trustedKeys = trusted();
+      app.host.trustedKeys = trusted(name);
       const r = await app.host.apply(m.manifest, m.sig, async (h) => {
         if (hasBlob(h)) return getBlob(h);
         const bytes = await new Promise((res, rej) => { waiting.set(h, res); send({ t: "want", hashes: [h] }); setTimeout(() => rej(new Error("blob timeout")), 15000); });
@@ -158,6 +183,6 @@ wss.on("connection", (ws, req) => {
   ws.close();
 });
 
-server.listen(PORT, "127.0.0.1", () => log(`llpd on http://127.0.0.1:${PORT}  data: ${DATA}`));
+server.listen(PORT, "127.0.0.1", () => log(`llpd on http://127.0.0.1:${PORT}  data: ${DATA}  (run "llp open" for the UI link)`));
 const stop = () => { for (const a of apps.values()) writeAtomic(join(appDir(a.name), "state.json"), JSON.stringify([...a.host.kv])); process.exit(0); };
 process.on("SIGINT", stop); process.on("SIGTERM", stop);

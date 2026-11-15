@@ -70,6 +70,26 @@ try {
   await d.click('[data-push="v2"]');
   await d.waitForFunction(() => document.getElementById("screen").textContent.includes("Tasks v2"), null, { timeout: 10000 });
   check("B7 demo page boots and swaps to v2 with layers in workers", d.workers().length >= 2, `${d.workers().length} workers`);
+
+  // SEC-05: a release from a key this device doesn't trust is never trusted automatically, not even
+  // the first one; the page asks, and shows a fingerprint to compare with the other device's screen.
+  const w = await browser.newPage();
+  await w.addInitScript(() => {
+    const doc = (path) => ({
+      onSnapshot: (cb) => { if (path === "llp/manifest") setTimeout(async () => {
+        const kp = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+        const pub = await crypto.subtle.exportKey("jwk", kp.publicKey);
+        cb({ exists: true, data: () => ({ manifest: { app: "demo", version: Date.now() + 1000, layers: {}, order: [] }, sig: "AAAA", pub, from: "other" }) });
+      }, 300); },
+      get: async () => ({ exists: false }), set: async () => {},
+    });
+    window.claude = { use: async (n) => (n === "db" ? { doc } : null) };
+  });
+  await w.goto(base + "/web/index.html");
+  await w.waitForFunction(() => document.getElementById("screen")?.textContent.includes("Tasks"), null, { timeout: 30000 });
+  const prompt = await w.waitForFunction(() => document.querySelector("#trust-box .fp")?.textContent, null, { timeout: 10000 }).then((h) => h.jsonValue()).catch(() => null);
+  const pinned = await w.evaluate(() => localStorage.getItem("llp.trusted"));
+  check("B8 the web demo never trusts a new key by itself: it asks, and shows a fingerprint to compare", /^Key fingerprint: (\w{4} ){4}\w{4}$/.test(prompt ?? "") && !(pinned && JSON.parse(pinned).length), prompt ?? "no prompt");
 } finally { await browser.close(); server.close(); }
 const failed = results.filter((x) => !x).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);

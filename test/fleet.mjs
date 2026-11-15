@@ -5,7 +5,7 @@
 // Usage: node test/fleet.mjs        (FLEET_HOSTS=n to change the simulated fleet size, default 48)
 import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LiveHost, signManifest, generatePublisherKey } from "../host/llp-core.js";
@@ -277,11 +277,18 @@ for (const n of sim) n.disconnect();
   }); });
   const run = (extra) => { const p = spawn(process.execPath, [join(ROOT, "host/fleet-host.mjs"), "ws://localhost:7793", join(work, "keyring.pinned.json"), "--id", "proc0-0", "--channel", "stable", ...extra], { stdio: ["pipe", "pipe", "pipe"] }); p.out = ""; p.stdout.on("data", (d) => (p.out += d)); return p; };
   const until = async (p, re) => { const t = Date.now(); while (!re.test(p.out) && Date.now() - t < 5000) await sleep(20); return p.out.match(re)?.[0]; };
-  const kept = run(["--trust-dir", join(work, "trust")]), fresh = run([]);
+  const kept = run([]), fresh = run(["--no-trust-dir"]); // the trust dir is on by default (FL-02)
   const a = await until(kept, /"state":"(live|rejected)"[^}]*/), b = await until(fresh, /"state":"(live|rejected)"[^}]*/);
   kept.kill(); fresh.kill(); rogue.close();
   check("W6 a restarted host that keeps its keyring on disk refuses the revoked key; one that only has the pinned keyring would accept it",
-    /rejected/.test(a ?? "") && /signature not trusted/.test(a) && /live/.test(b ?? ""), `with --trust-dir: ${a?.match(/"reason":"[^"]*"/)?.[0]}; without: ${b?.match(/"state":"\w+"/)?.[0]}`);
+    /rejected/.test(a ?? "") && /signature not trusted/.test(a) && /live/.test(b ?? ""), `default trust dir: ${a?.match(/"reason":"[^"]*"/)?.[0]}; --no-trust-dir: ${b?.match(/"state":"\w+"/)?.[0]}`);
+
+  // A saved keyring that exists but can't be read stops the host instead of falling back to the pinned one.
+  const broken = join(work, "trust-broken"); mkdirSync(broken, { recursive: true });
+  writeFileSync(join(broken, "proc0-0.keyring.json"), "{ not json");
+  const bad = run(["--trust-dir", broken]); let err = ""; bad.stderr.on("data", (d) => (err += d));
+  const code = await new Promise((r) => { const t = setTimeout(() => { bad.kill(); r("still running"); }, 5000); bad.on("exit", (c) => { clearTimeout(t); r(c); }); });
+  check("W7 a host whose saved keyring can't be read refuses to start rather than trust the pinned keyring", code === 2 && /can't read/.test(err), `exit ${code}`);
 }
 
 const failed = results.filter((x) => !x).length;

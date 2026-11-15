@@ -3,7 +3,8 @@
 //
 //   llp push  <app> <slot>=<file.wasm> [...]     sign with this device's key and stream to llpd
 //   llp watch <app> <slot>=<file.wasm> [...]     push again whenever a file changes
-//   llp trust <public-key.json>                  trust another publisher (e.g. a teammate or CI)
+//   llp trust <public-key.json> <app>            trust another publisher (a teammate or CI) for one app
+//   llp open [app]                               print the link to the UI (it carries this user's UI token)
 //   llp key                                      print this device's public key (to share)
 //   llp status                                   what llpd is running
 import { readFileSync, writeFileSync, watch, existsSync } from "node:fs";
@@ -45,6 +46,7 @@ async function push(app, slots) {
   });
 }
 
+const uiToken = () => { const f = join(DATA, "keys", "ui-token"); if (!existsSync(f)) die("No UI token yet. Start llpd once first; it creates one."); return readFileSync(f, "utf8").trim(); };
 const parseSlots = (args) => args.map((a) => { const i = a.indexOf("="); if (i < 1) die(`expected slot=file, got "${a}"`); return [a.slice(0, i), a.slice(i + 1)]; });
 
 if (cmd === "push") { const [app, ...s] = rest; if (!app || !s.length) die("usage: llp push <app> <slot>=<file.wasm> ..."); process.exit((await push(app, parseSlots(s))) ? 0 : 1); }
@@ -56,15 +58,25 @@ else if (cmd === "watch") {
   console.log("watching for changes… (Ctrl+C to stop)");
 }
 else if (cmd === "trust") {
-  const k = JSON.parse(readFileSync(rest[0], "utf8")); const jwk = k.public || k;
+  // Trust is per app (SEC-03): a teammate's key for one app can't update the others.
+  const [file, app] = rest;
+  if (!file || !app) die("usage: llp trust <public-key.json> <app>");
+  const k = JSON.parse(readFileSync(file, "utf8")); const jwk = k.public || k;
   if (jwk.kty !== "EC" || jwk.crv !== "P-256" || jwk.d) die("expected a P-256 public key (JWK) without a private part");
-  const f = join(DATA, "keys", "trusted.json"); const list = existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : [];
+  const f = join(DATA, "keys", "trusted.json");
+  let doc = existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : {};
+  if (Array.isArray(doc)) { console.error(`note: ${f} trusted ${doc.length} key(s) for every app; they are kept under "*" until you remove them`); doc = doc.length ? { "*": doc } : {}; }
+  const list = (doc[app] ||= []);
   if (!list.some((x) => x.x === jwk.x)) list.push({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y });
-  writeFileSync(f, JSON.stringify(list, null, 2)); console.log(`trusted key ${jwk.x.slice(0, 8)} (${list.length} total)`);
+  writeFileSync(f, JSON.stringify(doc, null, 2), { mode: 0o600 }); console.log(`trusted key ${jwk.x.slice(0, 8)} for ${app} (${list.length} for this app)`);
+}
+else if (cmd === "open") {
+  const t = uiToken();
+  console.log(`http://127.0.0.1:${PORT}/?token=${t}` + (rest[0] ? `&app=${encodeURIComponent(rest[0])}` : ""));
 }
 else if (cmd === "key") { const { pub } = await loadKey(); console.log(JSON.stringify({ kty: pub.kty, crv: pub.crv, x: pub.x, y: pub.y })); }
 else if (cmd === "status") {
-  try { const r = await fetch(`http://127.0.0.1:${PORT}/status`); console.log(await r.text()); }
+  try { const r = await fetch(`http://127.0.0.1:${PORT}/status?token=${uiToken()}`); console.log(await r.text()); }
   catch { die(`llpd isn't running on port ${PORT}`); }
 }
-else die("commands: push, watch, trust, key, status");
+else die("commands: push, watch, trust, open, key, status");

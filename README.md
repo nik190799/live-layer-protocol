@@ -95,16 +95,16 @@ Requires Node 22+ (for WebCrypto and the built-in WebSocket) and clang with the 
 
 ## The Live Layer service (one per device)
 
-`service/llpd.mjs` is the long-running service: it hosts any number of live apps, keeps their state on disk, restores them after a restart (re-checking signatures), accepts signed layer streams on `ws://127.0.0.1:7710/publish`, and serves UI clients at `http://127.0.0.1:7710`. It listens on this device only and refuses connections from web pages on other sites.
+`service/llpd.mjs` is the long-running service: it hosts any number of live apps, keeps their state on disk, restores them after a restart (re-checking signatures), accepts signed layer streams on `ws://127.0.0.1:7710/publish`, and serves UI clients at `http://127.0.0.1:7710`. It listens on this device only, refuses connections from web pages on other sites, and asks UI clients for a token that only your user account can read: run `llp open` for the link.
 
 Install:
 
 - **Windows:** `double-click `Install-LiveLayer.cmd`, or run `powershell -ExecutionPolicy Bypass -File install\install-windows.ps1` (no admin needed; starts at sign-in). Remove with `install\uninstall-windows.ps1`.
 - **Linux / macOS:** `sh install/install-unix.sh` (systemd user service, launchd agent, or a background process).
 
-Then, from any terminal: `llp push <app> <slot>=<file.wasm> ...`, `llp watch ...` (push on every save), `llp status`, `llp key`, `llp trust <key.json>`.
+Then, from any terminal: `llp push <app> <slot>=<file.wasm> ...`, `llp watch ...` (push on every save), `llp status`, `llp key`, `llp open [app]` (prints the UI link), `llp trust <key.json> <app>` (trust a teammate's key for one app).
 
-Tests: `node test/service.mjs` (10 checks: install, two live clients, capability effects, refusal, origin blocking, restart with state restored, swap after restart, status).
+Tests: `node test/service.mjs` (16 checks: install, two live clients, capability effects, refusal, origin blocking, restart with state restored, swap after restart, status, the UI token, UI writes limited to bound inputs, per-app trust).
 
 ## AI publishing loop (prompt to live app)
 
@@ -146,7 +146,7 @@ node tools/fleet.mjs --port 7720
 Terminal 2, five hosts on the stable channel, each keeping its accepted keyring on disk:
 
 ```bash
-node host/fleet-host.mjs ws://localhost:7720 keys/fleet/keyring.pinned.json --id laptop --channel stable --count 5 --trust-dir .fleet-trust
+node host/fleet-host.mjs ws://localhost:7720 keys/fleet/keyring.pinned.json --id laptop --channel stable --count 5   # keeps its keyring and device key in keys/fleet/trust/
 ```
 
 Then type into terminal 1:

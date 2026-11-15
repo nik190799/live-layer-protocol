@@ -217,6 +217,16 @@ Error codes: `bad_request` (malformed call; `args` over 64 KB), `unauthorized` (
 
 The window only affects latency, not correctness: with retry-on-mismatch a client that missed the window pays one extra round trip. Measured: relaying a server-only change to 40 clients takes about 20 ms; a change that also swaps the client slot takes 350 ms (p50) to 490 ms (max). The 30 s default is about 60 times the measured worst case.
 
+### 10.4 Device hosts and pairing
+
+A host that serves UI to other programs on the same device (the reference `service/llpd.mjs`) follows three rules:
+
+1. **Trust is per app.** A publisher key is trusted for named apps (`trusted.json` is `{app: [keys]}`), so a teammate's key for one app can't update another. Keys under `"*"`, or an older file that is a plain list, are trusted for every app; the reference service still accepts that and warns.
+2. **UI clients prove they are this user.** The UI page, its socket and the status endpoint need a token stored in a file only this user can read (`<data>/keys/ui-token`, mode 0600). `llp open` prints the link. Other local users and other sites can't connect.
+3. **The UI sets only what it shows.** A UI client may set a state key only when that key is bound to an input on the current screen. Everything else changes through layer events.
+
+Two devices pair by comparing a fingerprint (the first 80 bits of SHA-256 over the key's `x.y`, shown as five groups of four hex digits) on both screens. A host never trusts a new key without that confirmation, not even the first key it sees.
+
 ## 11. Known gaps in v0 (deliberately deferred)
 
 - Time limits are wall-clock, not CPU time, so a heavily loaded device can cut off a slow but honest layer. Limits are per host, not per layer or per manifest.
@@ -265,7 +275,7 @@ Fleet messages travel next to the section 5 stream:
 | controller → host | `{"t":"keyring","doc","sigs"}` (every keyring newer than the host's, oldest first), then the channel's current manifest |
 | host → controller | `{"t":"status","host","channel","version","keyring","target","percent","state","reason"}` |
 
-**Host identity.** Each host holds a device key (ECDSA P-256), kept with its other state (`fleet-host.mjs` stores it in `--trust-dir`). `auth.sig` signs the canonical JSON of the hello without `auth`, plus `"nonce"`: the challenge of that connection, so a hello can't be replayed on another connection. Until a connection's hello verifies, the controller ignores its `status` and `want` messages and answers `{"t":"error","code":"unauthorized"}`. A host id is bound to one device key. With enrollment `tofu` (the default) the first key that proves itself for an id is bound for good. With `closed`, only ids registered with `enroll(id, key)` may join. A hello for a bound id with any other key is refused. A host may hold several authenticated connections at once. Each one gets every message, none replaces another, and the host is offline only when all have closed. Status reports count only from authenticated connections, so rollout gates and automatic rollbacks can't be steered by an impostor. Limit: with `tofu`, whoever first claims a new id owns it; use `closed` enrollment where install-time registration is possible. Messages are not encrypted or bound to the transport, so the link must use TLS (`wss:`) against an on-path attacker.
+**Host identity.** Each host holds a device key (ECDSA P-256), kept with its other state (`fleet-host.mjs` stores it in its trust dir). `auth.sig` signs the canonical JSON of the hello without `auth`, plus `"nonce"`: the challenge of that connection, so a hello can't be replayed on another connection. Until a connection's hello verifies, the controller ignores its `status` and `want` messages and answers `{"t":"error","code":"unauthorized"}`. A host id is bound to one device key. With enrollment `tofu` (the default) the first key that proves itself for an id is bound for good. With `closed`, only ids registered with `enroll(id, key)` may join. A hello for a bound id with any other key is refused. A host may hold several authenticated connections at once. Each one gets every message, none replaces another, and the host is offline only when all have closed. Status reports count only from authenticated connections, so rollout gates and automatic rollbacks can't be steered by an impostor. Limit: with `tofu`, whoever first claims a new id owns it; use `closed` enrollment where install-time registration is possible. Messages are not encrypted or bound to the transport, so the link must use TLS (`wss:`) against an on-path attacker.
 
 **Cost.** The controller keeps running counts per channel and updates them when a host's record changes. It recounts a channel only when that channel's target release or the keyring changes. A status report costs the same at any fleet size. Measured: one report from each of 32,000 hosts takes 0.3 s in total (it was 10.7 s with a full scan per report).
 
@@ -298,7 +308,7 @@ Signatures go alongside the document as `[{ "kid", "sig" }]`, where `kid` is the
 
 - **Release key rotation:** keyring n+1 lists only the new key. The controller sends it to every host, then re-signs every channel's current manifest with the new key (same version, so hosts already on it do nothing). The old key is revoked the moment a host accepts the keyring. A leaked release key can't issue keyrings.
 - **Root rotation:** keyring n+1 with a new `root`, signed by old and new roots. Afterwards the old root keys can't issue keyrings.
-- A host must store its latest accepted keyring (`host/fleet-host.mjs --trust-dir`). One that restarts from the pinned keyring trusts revoked keys again until it reconnects to the controller. `test/fleet.mjs` W6 shows both cases.
+- A host must store its latest accepted keyring. `host/fleet-host.mjs` keeps it, with its device key, in a trust dir that defaults to `trust/` beside the pinned keyring (`--trust-dir` to move it). A saved file that exists but can't be read stops the host rather than letting it fall back to the pinned keyring. `--no-trust-dir` is for tests and throwaway hosts only: such a host trusts revoked keys again after a restart until it reconnects. `test/fleet.mjs` W6 and W7 show these cases.
 
 The core's `trustedKeys` becomes the keyring's release keys; the agent also checks the signature itself before evaluating channel or share. The agent pins the host to the keyring's `app` and sets the host's trusted epoch to the keyring number.
 
