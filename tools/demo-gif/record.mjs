@@ -80,7 +80,8 @@ await today.init();
 
 const videoDir = join(work, "video");
 const browser = await chromium.launch();
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, recordVideo: { dir: videoDir, size: { width: 1280, height: 720 } } });
+// 4:5 for phone feeds; rendered at 1.5x so the MP4 is 1080x1350.
+const ctx = await browser.newContext({ viewport: { width: 720, height: 900 }, deviceScaleFactor: 1.5, recordVideo: { dir: videoDir, size: { width: 1080, height: 1350 } } });
 page = await ctx.newPage();
 page.on("pageerror", (e) => console.error("[page]", e.message));
 const tv = Date.now(); // video time zero (close enough: the context starts recording on the first page)
@@ -90,17 +91,17 @@ await page.waitForFunction(() => window.stage?.ready(), null, { timeout: 30000 }
 const frame = page.frameLocator("#today");
 await frame.locator("#draft").waitFor();
 S = (fn, ...a) => page.evaluate(([f, a]) => window.stage[f](...a), [fn, a]);
-await S("how", ciMode === "github" ? "git push → GitHub Actions → restart" : "git commit → CI on this machine → restart");
-const fmtS = (ms) => ms < 1000 ? `${(ms / 1000).toFixed(2)} s` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)}m ${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}s`;
-function fmt(ms) { return ms < 10 ? ms.toFixed(1) : String(Math.round(ms)); }
+await S("how", ciMode === "github" ? "git push → GitHub Actions tests → server restart" : "git commit → tests → server restart");
+const fmtS = (ms) => ms < 10000 ? `${(ms / 1000).toFixed(1)} s` : ms < 60000 ? `${Math.floor(ms / 1000)} s` : `${Math.floor(ms / 60000)} min ${Math.floor(ms / 1000) % 60} s`;
 async function ask(text) {
   await S("ask", ""); await S("typing", true);
   for (let i = 1; i <= text.length; i++) { await S("ask", text.slice(0, i)); await sleep(36); }
   await sleep(200); await S("typing", false);
 }
+const FF = `⏩ ×${SPEED}`;
 async function fastForward(untilDone) { // speed up the video while only the today side is waiting
-  const a = vt(); await S("ff", `⏩ sped up ×${SPEED} while CI runs · clocks are real`);
-  const r = await untilDone; await S("ff", null); fast.push([a, vt()]); return r;
+  const a = vt(); await S("foot", `⏩ Video sped up ×${SPEED} while CI runs. Clocks show real time.`);
+  const r = await untilDone; await S("foot", "Real recording of both sides. Clocks show real time."); fast.push([a, vt()]); return r;
 }
 async function waitTodayReload(before) {
   while ((await page.evaluate(() => window.stage.todayLoads())) <= before) await sleep(20);
@@ -108,148 +109,141 @@ async function waitTodayReload(before) {
   await frame.locator("#app .u-heading").waitFor();
   return at;
 }
-const LLP_STEPS = ["AI writes the change", "Safety check", "Approve", "Live swap"];
-const TODAY_STEPS = ["AI writes the change", "Commit and push", ciMode === "github" ? "CI: GitHub Actions" : "CI: tests on this machine", "Deploy: restart server", "Open pages reload"];
-const ciName = (n = "") => /playwright/i.test(n) ? "installing the test browser" : /node --test/.test(n) ? "running the tests" : /checkout/.test(n) ? "checking out the code" : /setup-node/.test(n) ? "setting up Node" : /set up job/i.test(n) ? "starting a runner" : n;
 let stepChain = Promise.resolve(); // pipeline events are shown in the order they happened
-function todayStepper(offset = 0) { // map pipeline progress onto the today steps list
-  const show = async (name, d) => {
+let ciLabel = "Waiting for CI tests…";
+function todayStatus() {
+  todayStep.cb = (name) => (stepChain = stepChain.then(async () => {
     try {
-      if (name === "commit") { await S("step", "t", offset + 0, "ok", "same AI, same change"); await S("step", "t", offset + 1, "act"); }
-      if (name === "ci") { await S("step", "t", offset + 1, "ok", "pushed"); await S("step", "t", offset + 2, "act", ciName(d?.name)); }
-      if (name === "ci-failed") await S("step", "t", offset + 2, "bad", "tests failed");
-      if (name === "deploy") { await S("step", "t", offset + 2, "ok", "tests passed"); await S("step", "t", offset + 3, "act", "stopping the old server"); }
+      if (name === "commit") await S("status", "t", "Pushing to GitHub…", "act");
+      if (name === "ci") await S("status", "t", ciLabel, "act", FF);
+      if (name === "ci-failed") await S("status", "t", "CI failed", "bad");
+      if (name === "deploy") await S("status", "t", "Restarting the server…", "act");
     } catch {}
-  };
-  todayStep.show = show;
-  todayStep.cb = (name, d) => (stepChain = stepChain.then(() => todayStep.show(name, d)));
+  }));
 }
 const settled = () => stepChain;
 
-// The LLP side of one request: returns when the change is live (or blocked) on the device.
+// The LLP side of one request: returns when the change is live on the device.
 async function llpChange(prompt, replies) {
   say(prompt);
-  await S("step", "l", 0, "act");
+  await S("status", "l", "AI writing the change…", "act");
   const r = { blocked: null };
   await answerModel(replies.n, replies.first);
-  await until(/✓ compiled/); await S("step", "l", 0, "ok", "compiled"); await S("step", "l", 1, "act");
+  await until(/✓ compiled/); await S("status", "l", "Safety check: trying every button…", "act");
   const res = await until(/✓ shadow check passed|✗ check: (.*)/);
   if (res[1] !== undefined) {
     r.blocked = { reason: res[1], at: Date.now(), state: await page.evaluate(() => window.stage.llpState()) };
-    await S("step", "l", 1, "bad", "crashed on Delete → blocked");
-    await S("phone", "l", "held"); await S("badge", "l", "Blocked", "app untouched", "warn");
-    await sleep(1600);
-    await S("badge", "l", null); await S("phone", "l", "");
-    await S("step", "l", 0, "act", "crash sent back to the AI"); await S("step", "l", 1, "");
-    await answerModel(replies.n + 1, replies.fix, /trapped/);
-    await until(/✓ compiled/); await S("step", "l", 0, "ok", "AI fixed it"); await S("step", "l", 1, "act");
+    await S("status", "l", "Crashed in the check. Blocked.", "bad");
+    await S("phone", "l", "held"); await S("stamp", "l", "BLOCKED", "no user ever got this bug", "warn");
+    await answerModel(replies.n + 1, replies.fix, /trapped/); // the crash goes back to the AI at once
     await until(/✓ shadow check passed/);
   }
-  await S("step", "l", 1, "ok", "every button clicked"); await S("step", "l", 2, "act");
-  await until(/approve\?/); say("y"); await S("step", "l", 2, "ok", "approved");
+  await until(/approve\?/); say("y");
   const live = await until(/LIVE v\d+ after (\d+) attempt\(s\): host swapped in ([\d.]+) ms\n\s+time: total \d+ ms = model \d+ \+ compile (\d+) \+ check (\d+)/);
-  const before = r.blocked ? 2 : 1;
-  await page.waitForFunction((b) => window.stage.llpState().build > b, before, { timeout: 10000 });
+  await page.waitForFunction((b) => window.stage.llpState().build > b, r.blocked ? 2 : 1, { timeout: 10000 });
   const sw = await page.evaluate(() => window.stage.swaps.at(-1));
-  r.swap = sw; r.liveAt = sw.at; r.attempts = +live[1]; r.compileMs = +live[3]; r.checkMs = +live[4];
-  await S("step", "l", 3, "ok", `swapped in ${fmt(sw.ms)} ms, no restart`);
+  Object.assign(r, { swap: sw, liveAt: sw.at, attempts: +live[1], compileMs: +live[3], checkMs: +live[4] });
   return r;
 }
 
-// ---- intro: same app on both sides, someone is mid-typing ----
-mark("intro");
-await S("title", "Same app, same AI change.<br>Two ways to ship it.");
-await S("steps", "t", TODAY_STEPS); await S("steps", "l", LLP_STEPS);
-await sleep(600);
-await page.click("#in-draft"); await page.keyboard.type("Call the ba", { delay: 40 });
-await frame.locator("#draft").click(); await frame.locator("#draft").pressSequentially("Call the ba", { delay: 40 });
-await sleep(700);
-
-// ---- scene 1: a good change ----
-mark("ask-1");
+// ================= clip 1: the same change, shipped two ways =================
+mark("clip1");
+await S("title", "Same app. Same AI change.<br>Which one ships first?", "LLP streams new code into an app while it runs.");
+await sleep(1200);
+await S("chip", "t", "unsaved text"); await S("chip", "l", "unsaved text");
+await page.click("#in-draft"); await page.keyboard.type("Call the ba", { delay: 45 });
+await frame.locator("#draft").click(); await frame.locator("#draft").pressSequentially("Call the ba", { delay: 45 });
+await sleep(900);
+await S("title", "Same app. Same AI change.");
 await ask("Add a progress bar");
 const s1 = Date.now();
 await S("clockStart", "t", s1); await S("clockStart", "l", s1);
-todayStepper();
+todayStatus();
 const loads1 = await page.evaluate(() => window.stage.todayLoads());
 const today1 = today.ship("app-v2.js", "AI: add a progress bar");
 const llp1 = await llpChange("add a progress bar", { n: 1, first: "1-progress.md" });
-await S("clockStop", "l", llp1.liveAt, "live: no restart, draft kept");
-await S("phone", "l", "live"); await S("badge", "l", `${fmtS(llp1.liveAt - s1)}`, "no restart · draft kept");
+await S("clockStop", "l", llp1.liveAt, "to go live");
+await S("status", "l", "Live. No restart.", "ok");
+await S("phone", "l", "live"); await S("chip", "l", "unsaved text: KEPT", "kept");
 mark("llp-live-1");
-await S("title", "<em>LLP is live.</em><br>Today is still in CI.");
-await sleep(1500);
+await sleep(1800);
 const t1 = await fastForward(today1); await settled();
 if (!t1.ci.ok) throw new Error("today CI failed on the good change: " + JSON.stringify(t1.ci));
-await S("step", "t", 3, "ok", `server down ${t1.downtime} ms`); await S("step", "t", 4, "act", "the page reloads");
+await S("status", "t", "Page reloading…", "act");
 const reload1 = await waitTodayReload(loads1);
 const draftAfter1 = await frame.locator("#draft").inputValue();
-await S("step", "t", 4, "ok", draftAfter1 ? "reloaded" : "reloaded: typed text lost");
-await S("clockStop", "t", reload1, "live after CI and a restart");
-await S("phone", "t", "live"); await S("badge", "t", fmtS(reload1 - s1), draftAfter1 ? "page reloaded" : "page reloaded · draft lost", "warn");
+await S("clockStop", "t", reload1, "to go live");
+await S("status", "t", "Live, after a restart and reload.", "warn");
+await S("phone", "t", "live"); await S("chip", "t", draftAfter1 ? "unsaved text: kept" : "unsaved text: LOST", draftAfter1 ? "kept" : "lost");
 mark("today-live-1");
-await S("title", `LLP: <em>${fmtS(llp1.liveAt - s1)}</em>, nothing lost.<br>Today: ${fmtS(reload1 - s1)}, page reloaded.`);
-await sleep(3800);
+await sleep(3000);
+await S("card", `<div class="k">SAME CHANGE, MEASURED</div><div class="vs">
+<div class="t"><span>TODAY</span><b>${fmtS(reload1 - s1)}</b></div>
+<div class="l"><span>LLP</span><b>${fmtS(llp1.liveAt - s1)}</b></div></div>
+<p>${draftAfter1 ? "Both kept the user's typing." : "Today's restart wiped what the user was typing. LLP kept it."}</p>`);
+await sleep(3200);
+mark("clip1-end");
 
-// ---- scene 2: the AI writes a bug, on both sides ----
-mark("ask-2");
-for (const x of ["t", "l"]) { await S("badge", x, null); await S("phone", x, ""); await S("clockReset", x); }
-await S("steps", "t", TODAY_STEPS); await S("steps", "l", LLP_STEPS);
-await S("title", "Now the AI<br>writes a bug.");
+// ================= clip 2: the AI writes a bug =================
+mark("clip2");
+await S("card", null);
+for (const x of ["t", "l"]) { await S("phone", x, ""); await S("chip", x, null); await S("clockReset", x); await S("status", x, ""); }
+await S("ask", null);
+await S("title", "Now the AI writes a bug.", "Same buggy change, sent to both at once.");
+await sleep(1600);
+await S("title", "Now the AI writes a bug.");
 await ask("Add a Delete button");
 const s2 = Date.now();
 await S("clockStart", "t", s2); await S("clockStart", "l", s2);
-todayStepper();
+todayStatus();
 const loads2 = await page.evaluate(() => window.stage.todayLoads());
 const today2 = today.ship("app-v3.js", "AI: add a Delete button");
 const llp2 = await llpChange("add a delete button on each task", { n: 2, first: "2-delete-bad.md", fix: "3-delete-fixed.md" });
-await S("clockStop", "l", llp2.liveAt, "the bug never shipped");
-await S("phone", "l", "live"); await S("badge", "l", fmtS(llp2.liveAt - s2), "bug blocked · fix live");
+await S("clockStop", "l", llp2.liveAt, "to block it and ship the fix");
 mark("llp-live-2");
-await S("title", "<em>LLP blocked the bug.</em><br>Today's CI passes it.");
-await sleep(1200);
+await sleep(1500); // keep the BLOCKED stamp on screen a moment (after the clock stopped)
+await S("stamp", "l", null); await S("phone", "l", "live");
+await S("status", "l", "AI fixed it. Fix is live.", "ok");
 await page.click('#screen [data-id="del:2"]');
+await sleep(1200);
 const t2 = await fastForward(today2); await settled();
 if (!t2.ci.ok) throw new Error("today CI failed on the Delete change (it should pass: no test covers Delete): " + JSON.stringify(t2.ci));
-await S("step", "t", 2, "ok", "tests passed (none cover Delete)");
-await S("step", "t", 3, "ok", `server down ${t2.downtime} ms`); await S("step", "t", 4, "act", "the page reloads");
+await S("status", "t", "Page reloading…", "act");
 const reload2 = await waitTodayReload(loads2);
-await S("step", "t", 4, "ok", "reloaded");
-await sleep(600);
+await S("status", "t", "Tests passed. Bug is live.", "warn");
+await sleep(900);
 await frame.locator('.del[data-i="0"]').click();
 await frame.locator("#crash").waitFor({ state: "visible", timeout: 5000 });
 const crashAt = Date.now();
 mark("today-crash");
-await S("phone", "t", "broken"); await S("badge", "t", "Crashed", "the bug reached the user", "bad");
-await S("title", "<s>Today, a user hits the bug.</s><br>Roll back: the whole pipeline again.");
-await sleep(2200);
-// roll back: revert to the last good version, through the same pipeline
-await S("badge", "t", null);
-await S("steps", "t", ["A user hits the bug", "Revert and push", TODAY_STEPS[2], TODAY_STEPS[3], TODAY_STEPS[4]]);
-await S("step", "t", 0, "bad", "app crashed on Delete");
-todayStepper();
+await S("phone", "t", "broken"); await S("stamp", "t", "BROKEN", "a user hit the bug", "bad");
+await S("clockStart", "t", crashAt, "broken for users");
+await S("status", "t", "Rolling back: CI again…", "bad");
+await sleep(1800);
 const loads3 = await page.evaluate(() => window.stage.todayLoads());
-todayStep.show = ((show) => async (n, d) => { if (n !== "commit") return show(n, d); await S("step", "t", 1, "act", "git revert"); })(todayStep.show);
+ciLabel = "Rolling back: CI again…";
+todayStatus();
 const t3 = await fastForward(today.ship("app-v2.js", "Revert: the Delete button crashes")); await settled();
-await S("step", "t", 3, "ok", `server down ${t3.downtime} ms`); await S("step", "t", 4, "act", "the page reloads");
 const reload3 = await waitTodayReload(loads3);
-await S("step", "t", 4, "ok", "back to the old version");
-await S("clockStop", "t", reload3, "until it worked again");
-await S("phone", "t", "live"); await S("badge", "t", fmtS(reload3 - crashAt), "broken for users", "bad");
+await S("stamp", "t", null);
+await S("clockStop", "t", reload3, "broken for users");
+await S("status", "t", "Rolled back. Working again.", "warn"); await S("phone", "t", "");
 mark("today-back");
-await S("title", `LLP: bug never shipped.<br>Today: broken for ${fmtS(reload3 - crashAt)}.`);
-await sleep(3800);
+await sleep(2600);
 const llpFinal = await page.evaluate(() => window.stage.llpState());
+await S("card", `<div class="k">SAME BUG, MEASURED</div><div class="vs">
+<div class="t"><span>TODAY</span><b>broken ${fmtS(reload3 - crashAt)}</b></div>
+<div class="l"><span>LLP</span><b>never shipped</b></div></div>
+<p>LLP tried every button before release and caught it. The fix was live in ${fmtS(llp2.liveAt - s2)}.</p>`);
+await sleep(3200);
+mark("clip2-end");
 
-// ---- end card ----
-mark("end");
-await S("end", `<h2>Ship AI changes <em>live</em>,<br>without shipping its bugs.</h2>
-<table><tr><th></th><th class="t">TODAY</th><th class="l">WITH LLP</th></tr>
-<tr><td>A change goes live</td><td class="t">${fmtS(reload1 - s1)}</td><td class="l">${fmtS(llp1.liveAt - s1)}</td></tr>
-<tr><td>Half-typed text</td><td class="t">${draftAfter1 ? "kept" : "lost: page reloaded"}</td><td class="l">${llp1.swap.draft ? "kept" : "lost"}</td></tr>
-<tr><td>A buggy change</td><td class="t">reached users, ${fmtS(reload3 - crashAt)} to fix</td><td class="l">blocked, fix live in ${fmtS(llp2.liveAt - s2)}</td></tr></table>
-<div class="src2">Measured in this recording. Today: ${ciMode === "github" ? "GitHub Actions (ubuntu-latest)" : "tests on this machine"} + restarting a Node server. LLP: compile, shadow check, signed stream, live swap.</div>`);
-await sleep(4500);
+// ================= closing card (combined video only) =================
+mark("close");
+await S("card", `<div class="k">LIVE LAYER PROTOCOL</div><p style="margin:0;font:800 50px/1.08 'Inter Display',Inter,sans-serif;color:#f2f5fa">Ship AI changes <span style="color:#3ddc97">live</span>, without shipping its bugs.</p>
+<p>${fmtS(llp1.liveAt - s1)} vs ${fmtS(reload1 - s1)}.<br>Bug blocked vs broken for ${fmtS(reload3 - crashAt)}.</p>
+<div class="src">Both sides measured in this recording. Today: ${ciMode === "github" ? "GitHub Actions" : "tests on this machine"} + server restart.</div>`);
+await sleep(3500);
 mark("done");
 const video = await page.video().path();
 await ctx.close(); await browser.close(); server.close(); say("quit"); await today.close();
@@ -269,22 +263,28 @@ const result = {
   scene1: { llpMs: llp1.liveAt - s1, llpSwapMs: llp1.swap.ms, compileMs: llp1.compileMs, checkMs: llp1.checkMs, todayMs: reload1 - s1, todayCi: t1.ci, todayDowntimeMs: t1.downtime, todayDraftAfter: draftAfter1 },
   scene2: { llpBlocked: llp2.blocked.reason, llpFixLiveMs: llp2.liveAt - s2, todayBugLiveMs: reload2 - s2, todayBrokenMs: reload3 - crashAt, todayCi: t2.ci, rollbackCi: t3.ci },
 };
-// ---- video -> gif + mp4, with the CI waits sped up ----
+// ---- video -> three cuts (clip 1, clip 2, both), with the CI waits sped up ----
 mkdirSync(dirname(out), { recursive: true });
 const ff = (a) => execFileSync("ffmpeg", ["-v", "error", "-y", ...a], { stdio: "inherit" });
-const start = Math.max(0, (marks[0].at * 1000 - (tv - t0)) / 1000 - 0.2), end = (marks.at(-1).at * 1000 - (tv - t0)) / 1000;
-const segs = []; let at = start;
-for (const [a, b] of fast) { if (a > at) segs.push([at, a, 1]); segs.push([a, b, SPEED]); at = b; }
-segs.push([at, end, 1]);
-const parts = segs.map(([a, b, k], i) => `[0:v]trim=${a.toFixed(3)}:${b.toFixed(3)},setpts=(PTS-STARTPTS)/${k}[s${i}]`).join(";");
-const cat = `${parts};${segs.map((_, i) => `[s${i}]`).join("")}concat=n=${segs.length}:v=1:a=0[v]`;
-const mid = join(work, "cut.mp4");
-ff(["-i", video, "-filter_complex", cat, "-map", "[v]", "-r", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", mid]);
-ff(["-i", mid, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", out + ".mp4"]);
-ff(["-i", mid, "-vf", "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", out + ".gif"]);
-const seconds = segs.reduce((n, [a, b, k]) => n + (b - a) / k, 0);
-writeFileSync(out + "-run.json", JSON.stringify({ recordedAt: new Date().toISOString(), ...result, speedUp: { factor: SPEED, segments: fast }, timeline: marks, publisherOutput: output }, null, 2) + "\n");
+const at = (name) => (marks.find((m) => m.name === name).at * 1000 - (tv - t0)) / 1000;
+function render(from, to, base) {
+  const segs = []; let p = from;
+  for (const [a, b] of fast) { if (b <= from || a >= to) continue; if (a > p) segs.push([p, a, 1]); segs.push([Math.max(a, p), Math.min(b, to), SPEED]); p = Math.min(b, to); }
+  if (to > p) segs.push([p, to, 1]);
+  const parts = segs.map(([a, b, k], i) => `[0:v]trim=${a.toFixed(3)}:${b.toFixed(3)},setpts=(PTS-STARTPTS)/${k}[s${i}]`).join(";");
+  const mid = join(work, "cut.mp4");
+  ff(["-i", video, "-filter_complex", `${parts};${segs.map((_, i) => `[s${i}]`).join("")}concat=n=${segs.length}:v=1:a=0[v]`, "-map", "[v]", "-r", "30", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "17", mid]);
+  ff(["-i", mid, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-movflags", "+faststart", base + ".mp4"]);
+  ff(["-i", mid, "-vf", "fps=10,scale=600:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", base + ".gif"]);
+  return Math.round(segs.reduce((n, [a, b, k]) => n + (b - a) / k, 0));
+}
+const lengths = {
+  clip1: render(Math.max(0, at("clip1") - 0.2), at("clip1-end"), out + "-1-speed"),
+  clip2: render(at("clip2"), at("clip2-end"), out + "-2-bug"),
+  both: render(Math.max(0, at("clip1") - 0.2), at("done"), out),
+};
+writeFileSync(out + "-run.json", JSON.stringify({ recordedAt: new Date().toISOString(), ...result, speedUp: { factor: SPEED, segments: fast }, lengths, timeline: marks, publisherOutput: output }, null, 2) + "\n");
 if (args.includes("--keep-video")) console.log("raw video:", video); else rmSync(work, { recursive: true, force: true });
-console.log(`wrote ${out}.gif, ${out}.mp4, ${out}-run.json (${Math.round(seconds)} s of video from ${Math.round(end - start)} s of real time)`);
+console.log(`wrote ${out}{,-1-speed,-2-bug}.{gif,mp4} and ${out}-run.json; seconds: ${JSON.stringify(lengths)}`);
 console.log(JSON.stringify(result));
 process.exit(0);

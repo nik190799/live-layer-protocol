@@ -2,9 +2,9 @@
 
 Stream code into a running app. Layers are signed, content-addressed WebAssembly modules; the host verifies, rehearses, and swaps them in place in milliseconds without losing state. See `SPEC.md`.
 
-![The same AI change shipped two ways side by side: a git push, GitHub Actions and a restart take about 45 s and lose the typed draft, while LLP is live in under a second with nothing lost; then a buggy change reaches today's users until a rollback, while LLP blocks it](docs/demo.gif)
+<img src="docs/demo.gif" width="420" alt="The same AI change raced two ways: today's git push, CI and restart takes tens of seconds and wipes the user's unsaved text, while LLP is live in about a second and keeps it; then a buggy change breaks today's app until a rollback, while LLP blocks it before any user gets it">
 
-Both sides are real runs, recorded side by side by `node tools/demo-gif/record.mjs` (also as [docs/demo.mp4](docs/demo.mp4); every measured number is in `docs/demo-run.json`; what is scripted is in `tools/demo-gif/README.md`).
+Both sides are real runs, recorded side by side by `node tools/demo-gif/record.mjs`. It writes two short clips (`docs/demo-1-speed.gif`, `docs/demo-2-bug.gif`), the combined GIF, the MP4s, and every measured number in `docs/demo-run.json`. What is scripted is listed in `tools/demo-gif/README.md`.
 
 ## Layout
 
