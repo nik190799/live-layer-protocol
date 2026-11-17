@@ -1,59 +1,104 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>How LLP works</title>
-<!-- "How LLP works" image for launch posts: a plain schematic, readable at one glance. Rendered to
-     docs/llp-architecture.png (1080x1350) by node tools/demo-gif/render-architecture.mjs.
-     Claims are in SPEC.md sections 3, 6 and 6.1; the timings are from docs/demo-run.json. -->
+<!-- "How LLP works" image for launch posts: what LLP does, as a schematic of the real pipeline.
+     Rendered to docs/llp-architecture.png (1080x1350) by node tools/demo-gif/render-architecture.mjs.
+     Every component is in SPEC.md sections 2, 3, 5 and 6, and the limits are DEFAULT_LIMITS in host/llp-core.js. -->
 <style>
-:root { --bg: #f4f3ef; --ink: #121212; --mid: #6b6b66; --rule: #cfcdc6; --acc: #1f6f50; }
+:root { --bg: #f4f3ef; --ink: #121212; --mid: #6b6b66; --rule: #cfcdc6; --acc: #1f6f50; --bad: #a8402f; }
 * { box-sizing: border-box; }
 html, body { margin: 0; width: 720px; height: 900px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: Inter, sans-serif; }
-.wrap { padding: 64px 56px 0; }
-.k { font: 500 12px "JetBrains Mono", "DejaVu Sans Mono", monospace; letter-spacing: .14em; color: var(--mid); }
-h1 { margin: 22px 0 0; font: 600 44px/1.08 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; }
-h1 span { color: var(--mid); }
-svg { display: block; margin-top: 96px; overflow: visible; }
-svg text { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 13px; fill: var(--ink); }
-svg .m { fill: var(--mid); }
-.foot { position: absolute; left: 56px; right: 56px; bottom: 60px; border-top: 1px solid var(--rule); padding-top: 18px;
-  display: flex; justify-content: space-between; font: 500 13px "JetBrains Mono", "DejaVu Sans Mono", monospace; color: var(--mid); }
-.foot b { color: var(--ink); font-weight: 600; }
+.wrap { padding: 52px 56px 0; }
+.k { font: 500 12px "JetBrains Mono", monospace; letter-spacing: .14em; color: var(--mid); }
+h1 { margin: 16px 0 0; font: 600 42px/1.08 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; }
+.sub { margin: 8px 0 0; font: 500 19px/1.3 Inter, sans-serif; color: var(--mid); }
+svg { display: block; margin-top: 30px; overflow: visible; }
+svg text { font-family: "JetBrains Mono", monospace; font-size: 11.5px; fill: var(--ink); }
+svg .m { fill: var(--mid); } svg .h { font-size: 10.5px; letter-spacing: .12em; fill: var(--mid); }
+svg .w { fill: #f4f3ef; } svg .a { fill: var(--acc); } svg .r { fill: var(--bad); }
+.foot { position: absolute; left: 56px; right: 56px; bottom: 44px; border-top: 1px solid var(--rule); padding-top: 14px;
+  display: grid; grid-template-columns: repeat(4, auto); justify-content: space-between; row-gap: 7px;
+  font: 500 11.5px "JetBrains Mono", monospace; color: var(--ink); }
+.foot span::before { content: "■ "; color: var(--acc); font-size: 8px; vertical-align: 2px; }
 </style>
 <div class="wrap">
   <div class="k">LIVE LAYER PROTOCOL</div>
-  <h1>Swap code in a running app.<br><span>Checked first. State kept.</span></h1>
-  <svg width="608" height="440" viewBox="0 0 608 440">
+  <h1>Swap code in a running app.</h1>
+  <p class="sub">Signed, verified twice, reversible. State never moves.</p>
+  <svg width="608" height="560" viewBox="0 0 608 560">
     <defs>
-      <pattern id="h" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#bdbab2" stroke-width="2"/></pattern>
-      <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="#1f6f50"/></marker>
+      <pattern id="hat" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#c3c0b8" stroke-width="2"/></pattern>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#121212"/></marker>
+      <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1f6f50"/></marker>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a8402f"/></marker>
     </defs>
-    <!-- pipeline -->
-    <line x1="6" y1="10" x2="596" y2="10" stroke="#121212" stroke-width="1.5"/>
-    <g fill="#f4f3ef" stroke="#121212" stroke-width="1.5">
-      <circle cx="6" cy="10" r="5.5"/><circle cx="202" cy="10" r="5.5"/><circle cx="398" cy="10" r="5.5"/>
+
+    <!-- PUBLISHER -->
+    <text class="h" x="0" y="10">PUBLISHER</text>
+    <g fill="none" stroke="#121212">
+      <rect x="0.5" y="22" width="136" height="58"/><rect x="157.5" y="22" width="136" height="58"/>
+      <rect x="314.5" y="22" width="136" height="58"/><rect x="471.5" y="22" width="136" height="58"/>
     </g>
-    <circle cx="596" cy="10" r="6" fill="#1f6f50"/>
-    <text x="0" y="40">01 change</text><text class="m" x="0" y="58">one layer</text>
-    <text x="196" y="40">02 verify</text><text class="m" x="196" y="58">on copied state</text>
-    <text x="392" y="40">03 sign</text><text class="m" x="392" y="58">approved key</text>
-    <text x="608" y="40" text-anchor="end" style="fill:#1f6f50">04 swap</text><text class="m" x="608" y="58" text-anchor="end">no restart</text>
-    <!-- route into the app -->
-    <path d="M596 72 V231 H528" fill="none" stroke="#1f6f50" stroke-width="1.5" marker-end="url(#a)"/>
-    <!-- the app -->
-    <rect x="0.75" y="110" width="510" height="320" fill="none" stroke="#121212" stroke-width="1.5"/>
-    <text class="m" x="22" y="140">running app</text>
-    <rect x="22" y="158" width="466" height="46" fill="none" stroke="#121212"/>
-    <text x="40" y="186">layer · header</text>
-    <rect x="22" y="212" width="466" height="46" fill="#1f6f50"/>
-    <text x="40" y="240" style="fill:#f4f3ef">layer · tasks</text><text x="470" y="240" text-anchor="end" style="fill:#cfe6db">v1 → v2</text>
-    <rect x="22" y="266" width="466" height="46" fill="none" stroke="#121212"/>
-    <text x="40" y="294">layer · footer</text>
-    <rect x="22" y="344" width="466" height="62" fill="url(#h)" stroke="#121212"/>
-    <rect x="40" y="361" width="226" height="28" fill="#f4f3ef"/>
-    <text x="48" y="380">state · owned by the host</text>
+    <g stroke="#121212" marker-end="url(#ar)"><line x1="138" y1="51" x2="155" y2="51"/><line x1="295" y1="51" x2="312" y2="51"/><line x1="452" y1="51" x2="469" y2="51"/></g>
+    <text x="12" y="45">compile</text><text class="m" x="12" y="64">any lang → wasm</text>
+    <text x="169" y="45">pre-check</text><text class="m" x="169" y="64">fire every event</text>
+    <text x="326" y="45">sign</text><text class="m" x="326" y="64">ECDSA P-256</text>
+    <text x="483" y="45">manifest</text><text class="m" x="483" y="64">v+1 · slot→hash</text>
+
+    <!-- TRANSPORT -->
+    <g stroke="#121212" marker-end="url(#ar)"><line x1="539" y1="82" x2="539" y2="146"/></g>
+    <g stroke="#6b6b66" stroke-dasharray="3 3" marker-end="url(#ar)"><line x1="455" y1="146" x2="455" y2="84"/></g>
+    <text x="549" y="108">manifest</text><text x="549" y="124">blob ×n</text>
+    <text class="m" x="445" y="108" text-anchor="end">want</text><text class="m" x="445" y="124" text-anchor="end">ack / nack</text>
+    <text class="h" x="0" y="112">TRANSPORT</text>
+    <text class="m" x="0" y="128">websocket · blobs addressed by SHA-256</text>
+
+    <!-- LIVE HOST -->
+    <rect x="0.75" y="150" width="606.5" height="408" fill="none" stroke="#121212" stroke-width="1.5"/>
+    <text class="h" x="18" y="174">LIVE HOST · ON DEVICE</text>
+
+    <!-- admission gates -->
+    <text class="m" x="18" y="200">admission</text>
+    <g fill="none" stroke="#121212">
+      <rect x="18.5" y="210" width="228" height="34"/><rect x="18.5" y="252" width="228" height="34"/>
+      <rect x="18.5" y="294" width="228" height="34"/><rect x="18.5" y="336" width="228" height="34"/>
+    </g>
+    <text x="30" y="231">1 signature</text><text class="m" x="236" y="231" text-anchor="end">trusted key</text>
+    <text x="30" y="273">2 version</text><text class="m" x="236" y="273" text-anchor="end">&gt; running</text>
+    <text x="30" y="315">3 sha-256</text><text class="m" x="236" y="315" text-anchor="end">= declared</text>
+    <text x="30" y="357">4 shadow</text><text class="m" x="236" y="357" text-anchor="end">migrate + render</text>
+    <g stroke="#121212" marker-end="url(#ar)"><line x1="132" y1="245" x2="132" y2="251"/><line x1="132" y1="287" x2="132" y2="293"/><line x1="132" y1="329" x2="132" y2="335"/></g>
+    <line x1="132" y1="372" x2="132" y2="392" stroke="#1f6f50" stroke-width="1.5" marker-end="url(#aa)"/>
+    <rect x="18" y="394" width="229" height="36" fill="#1f6f50"/>
+    <text class="w" x="30" y="416">5 commit</text><text x="236" y="416" text-anchor="end" style="fill:#cfe6db">atomic swap</text>
+    <text class="r" x="18" y="452">any fail → reject, v1 untouched</text>
+
+    <!-- slots -->
+    <text class="m" x="276" y="200">slots · sandboxed worker each</text>
+    <rect x="276.5" y="210" width="312" height="160" fill="none" stroke="#6b6b66" stroke-dasharray="4 3"/>
+    <rect x="290" y="222" width="285" height="38" fill="#1f6f50"/>
+    <text class="w" x="302" y="245">main</text><text x="563" y="245" text-anchor="end" style="fill:#cfe6db">9f3a… v1 → v2</text>
+    <rect x="290.5" y="268" width="284" height="38" fill="none" stroke="#121212"/>
+    <text x="302" y="291">footer</text><text class="m" x="563" y="291" text-anchor="end">c41e… v1</text>
+    <text class="m" x="290" y="330">limits per call</text>
+    <text x="290" y="350">100 ms · 32 MB memory</text>
+    <path d="M248 412 H262 V241 H288" fill="none" stroke="#1f6f50" stroke-width="1.5" marker-end="url(#aa)"/>
+
+    <!-- state -->
+    <rect x="276.5" y="394" width="312" height="36" fill="url(#hat)" stroke="#121212"/>
+    <rect x="288" y="403" width="196" height="18" fill="#f4f3ef"/>
+    <text x="294" y="416">state · host-owned kv</text>
+
+    <!-- rollback -->
+    <path d="M576 241 H600 V476 H270 V256 H287" fill="none" stroke="#a8402f" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+    <text class="r" x="284" y="456">runtime trap → revert v1, restore state</text>
+    <text class="m" x="18" y="522">hosts</text><text x="18" y="540">browser · node · go</text>
   </svg>
 </div>
-<div class="foot"><span>same change, measured</span><span>LLP <b>1.1 s</b> · push + CI + restart <b>37 s</b></span></div>
+<div class="foot">
+  <span>no restart</span><span>state kept</span><span>signed releases</span><span>anti-replay</span>
+  <span>checked pre-release</span><span>checked on device</span><span>auto-rollback</span><span>sandboxed</span>
+</div>
 <script>
 const q = new URLSearchParams(location.search);
 if (q.get("zoom")) document.documentElement.style.zoom = q.get("zoom");
