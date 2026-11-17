@@ -4,7 +4,7 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 
 <img src="docs/demo.gif" width="420" alt="The same AI change raced two ways: today's git push, CI and restart takes tens of seconds and wipes the user's unsaved text, while LLP is live in about a second and keeps it; then a buggy change breaks today's app until a rollback, while LLP blocks it before any user gets it">
 
-Both sides are real runs, recorded side by side by `node tools/demo-gif/record.mjs`. It writes two short clips (`docs/demo-1-speed.gif`, `docs/demo-2-bug.gif`), the combined GIF, the MP4s, and every measured number in `docs/demo-run.json`. What is scripted is listed in `tools/demo-gif/README.md`.
+Both sides are real runs, recorded side by side by `node tools/demo-gif/record.mjs`. It writes two short clips (`docs/demo-1-speed.gif`, `docs/demo-2-bug.gif`), the combined GIF, the MP4s, and every measured number in `docs/demo-run.json`. What is scripted is listed in `tools/demo-gif/README.md`. A still "how it works" image, `docs/llp-architecture.png`, is rendered by `node tools/demo-gif/render-architecture.mjs`.
 
 ## Layout
 
