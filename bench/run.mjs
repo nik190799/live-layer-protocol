@@ -157,7 +157,10 @@ if (want("rollback")) {
   const store = new Map();
   const put = async (b) => { const h = await sha256(b); store.set(h, b); return h; };
   const fetchBlob = async (h) => store.get(h);
-  const v2 = await put(read("tasks_v2.wasm")), statsL = await put(read("stats.wasm"));
+  // The good version is tasks.wasm (schema 1), the same schema as the crashing variant: a revert never
+  // lands on a version whose schema differs from the stored data (SPEC 6.1), so a schema-2 base would
+  // not be reverted to.
+  const v2 = await put(read("tasks.wasm")), statsL = await put(read("stats.wasm"));
   const trapBytes = read("tasks_trap.wasm"), brokenBytes = read("tasks_broken.wasm");
   const host = new LiveHost({ app: "demo.tasks", trustedKeys: [pub.publicJwk] });
   let m = { app: "demo.tasks", version: 1, layers: { main: v2, footer: statsL }, order: ["main", "footer"] };

@@ -17,6 +17,8 @@ Results land in `bench/out/results.json`. Each timing is reported as p50 / p95 o
 ## The short answer
 
 > **Update (sandbox, PR #3):** layers now run in workers with time and memory limits. With that change, a quick re-run on the same kind of machine measured a 3.0 ms swap (p50, was 1.6 ms) and 3.1 ms to revert a crashing layer (was 0.17 ms, because the revert now loads the old version into a fresh worker). File saved to live took 88 ms for 1 host, 154 ms for 100 and 597 ms for 1,000 simulated hosts. The simulated fleet runs layers inline, because hundreds of devices share one process, so its numbers don't include worker cost. The tables below are from the original run.
+>
+> **Update (2026-11-17):** the rollback section used a schema-2 layer as the good version and a schema-1 layer as the crashing one. Since reverts stopped crossing schemas (red-team ST-01), the host rightly declined that revert and the benchmark's own check reported `false`. It now uses a same-schema base. A full re-run on the same kind of machine measured 2.3 ms for a warm swap, 2.3 ms to revert a crashing layer and 7.0 ms to refuse a broken one (all p50). The raw output is in [`paper/results/benchmark.json`](../paper/results/benchmark.json).
 
 | Step | Traditional | LLP |
 |---|---|---|
