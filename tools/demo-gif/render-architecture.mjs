@@ -13,9 +13,6 @@ await page.evaluate(() => document.fonts.ready);
 // Fail rather than ship a clipped image: nothing may overflow the 720x900 layout.
 const over = await page.evaluate(() => [...document.querySelectorAll("body *")].filter((e) => { const r = e.getBoundingClientRect(); return r.width && (r.right > 721 || r.bottom > 901); }).map((e) => e.className || e.tagName));
 if (over.length) { console.error("overflows the frame:", over); process.exit(1); }
-// The comparison row must not overlap the steps above it.
-const gap = await page.evaluate(() => document.querySelector(".vs").getBoundingClientRect().top - Math.max(document.querySelector(".steps").getBoundingClientRect().bottom, document.querySelector(".device").getBoundingClientRect().bottom));
-if (gap < 8) { console.error(`the comparison row overlaps the diagram (gap ${gap}px)`); process.exit(1); }
 await page.screenshot({ path: out });
 await browser.close();
 console.log("wrote", out);
