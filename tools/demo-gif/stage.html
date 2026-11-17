@@ -88,6 +88,7 @@ html, body { margin: 0; width: 720px; height: 900px; overflow: hidden; backgroun
 import { LiveHost, b64 } from "/host/llp-core.js";
 const $ = (id) => document.getElementById(id);
 const q = new URLSearchParams(location.search);
+if (q.get("zoom")) document.documentElement.style.zoom = q.get("zoom"); // the recorder renders at 1.5x
 const trusted = await (await fetch("/key")).json();
 
 // ---- the LLP device ----

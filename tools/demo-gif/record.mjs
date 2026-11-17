@@ -33,6 +33,8 @@ const ciMode = args.includes("--ci") ? args[args.indexOf("--ci") + 1] : "github"
 const SPEED = 20; // how much the long waits are sped up in the video
 const work = mkdtempSync(join(tmpdir(), "llp-gif-"));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A run has twice hung for unknown reasons after the first deploy; never wait forever.
+setTimeout(() => { console.error("recording took over 12 minutes; giving up"); process.exit(2); }, 12 * 60_000).unref();
 
 // ---- the real AI publisher ----
 const pub = spawn(process.execPath, [join(root, "tools/ai-publish.mjs"), "--backend", "handoff", "--handoff-dir", join(work, "handoff"),
@@ -80,13 +82,15 @@ await today.init();
 
 const videoDir = join(work, "video");
 const browser = await chromium.launch();
-// 4:5 for phone feeds; rendered at 1.5x so the MP4 is 1080x1350.
-const ctx = await browser.newContext({ viewport: { width: 720, height: 900 }, deviceScaleFactor: 1.5, recordVideo: { dir: videoDir, size: { width: 1080, height: 1350 } } });
+// 4:5 for phone feeds. The stage is laid out at 720x900 and zoomed 1.5x (?zoom=1.5), so the page fills a
+// 1080x1350 viewport. (Playwright records the viewport in CSS pixels; deviceScaleFactor does not
+// enlarge the video, it only pads it, which is what made half of v5's first frames gray.)
+const ctx = await browser.newContext({ viewport: { width: 1080, height: 1350 }, recordVideo: { dir: videoDir, size: { width: 1080, height: 1350 } } });
 page = await ctx.newPage();
 page.on("pageerror", (e) => console.error("[page]", e.message));
 const tv = Date.now(); // video time zero (close enough: the context starts recording on the first page)
 const vt = () => (Date.now() - tv) / 1000;
-await page.goto(`http://127.0.0.1:${server.address().port}/?port=${port}&today=${encodeURIComponent(`http://127.0.0.1:${todayPort}/`)}&tasks=${encodeURIComponent(JSON.stringify(TASKS))}`);
+await page.goto(`http://127.0.0.1:${server.address().port}/?zoom=1.5&port=${port}&today=${encodeURIComponent(`http://127.0.0.1:${todayPort}/`)}&tasks=${encodeURIComponent(JSON.stringify(TASKS))}`);
 await page.waitForFunction(() => window.stage?.ready(), null, { timeout: 30000 });
 const frame = page.frameLocator("#today");
 await frame.locator("#draft").waitFor();
@@ -103,8 +107,11 @@ async function fastForward(untilDone) { // speed up the video while only the tod
   const a = vt(); await S("foot", `⏩ Video sped up ×${SPEED} while CI runs. Clocks show real time.`);
   const r = await untilDone; await S("foot", "Real recording of both sides. Clocks show real time."); fast.push([a, vt()]); return r;
 }
+const dbg = (m) => process.env.DEBUG && console.log("DBG", ((Date.now() - t0) / 1000).toFixed(1), m);
 async function waitTodayReload(before) {
+  dbg("wait reload, loads before " + before);
   while ((await page.evaluate(() => window.stage.todayLoads())) <= before) await sleep(20);
+  dbg("reloaded");
   const at = Date.now();
   await frame.locator("#app .u-heading").waitFor();
   return at;
@@ -151,8 +158,8 @@ mark("clip1");
 await S("title", "Same app. Same AI change.<br>Which one ships first?", "LLP streams new code into an app while it runs.");
 await sleep(1200);
 await S("chip", "t", "unsaved text"); await S("chip", "l", "unsaved text");
-await page.click("#in-draft"); await page.keyboard.type("Call the ba", { delay: 45 });
-await frame.locator("#draft").click(); await frame.locator("#draft").pressSequentially("Call the ba", { delay: 45 });
+await page.focus("#in-draft"); await page.keyboard.type("Call the ba", { delay: 45 }); // focus + keys, not pointer clicks: the 1.5x zoom confuses Playwright's hit test in the iframe
+await frame.locator("#draft").focus(); await frame.locator("#draft").pressSequentially("Call the ba", { delay: 45 });
 await sleep(900);
 await S("title", "Same app. Same AI change.");
 await ask("Add a progress bar");
@@ -167,7 +174,7 @@ await S("status", "l", "Live. No restart.", "ok");
 await S("phone", "l", "live"); await S("chip", "l", "unsaved text: KEPT", "kept");
 mark("llp-live-1");
 await sleep(1800);
-const t1 = await fastForward(today1); await settled();
+const t1 = await fastForward(today1); dbg("today1 shipped"); await settled(); dbg("settled");
 if (!t1.ci.ok) throw new Error("today CI failed on the good change: " + JSON.stringify(t1.ci));
 await S("status", "t", "Page reloading…", "act");
 const reload1 = await waitTodayReload(loads1);
@@ -204,7 +211,7 @@ mark("llp-live-2");
 await sleep(1500); // keep the BLOCKED stamp on screen a moment (after the clock stopped)
 await S("stamp", "l", null); await S("phone", "l", "live");
 await S("status", "l", "AI fixed it. Fix is live.", "ok");
-await page.click('#screen [data-id="del:2"]');
+await page.locator('#screen [data-id="del:2"]').dispatchEvent("click");
 await sleep(1200);
 const t2 = await fastForward(today2); await settled();
 if (!t2.ci.ok) throw new Error("today CI failed on the Delete change (it should pass: no test covers Delete): " + JSON.stringify(t2.ci));
@@ -212,7 +219,7 @@ await S("status", "t", "Page reloading…", "act");
 const reload2 = await waitTodayReload(loads2);
 await S("status", "t", "Tests passed. Bug is live.", "warn");
 await sleep(900);
-await frame.locator('.del[data-i="0"]').click();
+await frame.locator('.del[data-i="0"]').dispatchEvent("click");
 await frame.locator("#crash").waitFor({ state: "visible", timeout: 5000 });
 const crashAt = Date.now();
 mark("today-crash");
@@ -278,6 +285,11 @@ function render(from, to, base) {
   ff(["-i", mid, "-vf", "fps=10,scale=600:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", base + ".gif"]);
   return Math.round(segs.reduce((n, [a, b, k]) => n + (b - a) / k, 0));
 }
+// Prove the page fills the frame: the bottom-right corner of a frame must be the stage background, not padding.
+const probe = join(work, "probe.rgb");
+ff(["-ss", "2", "-i", video, "-frames:v", "1", "-vf", "crop=4:4:iw-6:ih-6", "-f", "rawvideo", "-pix_fmt", "rgb24", probe]);
+const [r, g, b] = readFileSync(probe);
+if (Math.abs(r - 11) > 12 || Math.abs(g - 15) > 12 || Math.abs(b - 21) > 12) { console.error(`the page does not fill the video frame (corner is rgb ${r},${g},${b})`); process.exit(1); }
 const lengths = {
   clip1: render(Math.max(0, at("clip1") - 0.2), at("clip1-end"), out + "-1-speed"),
   clip2: render(at("clip2"), at("clip2-end"), out + "-2-bug"),

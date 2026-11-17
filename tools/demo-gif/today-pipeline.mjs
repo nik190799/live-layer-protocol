@@ -61,7 +61,7 @@ export class TodayPipeline {
 
   async githubCi(sha) {
     this.onStep("ci", { name: "queued" });
-    const api = async (path) => JSON.parse(await run("gh", ["api", `repos/${this.repo}/${path}`]));
+    const api = async (path) => JSON.parse(await run("gh", ["api", `repos/${this.repo}/${path}`], { timeout: 30_000 }));
     let ci;
     for (let i = 0; i < 600; i++) {
       ci ??= (await api(`actions/runs?branch=${encodeURIComponent(this.branch)}&head_sha=${sha}&per_page=1`)).workflow_runs[0];
