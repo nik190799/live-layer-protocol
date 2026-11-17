@@ -9,6 +9,8 @@ function render() {
   const done = tasks.filter((t) => t.done).length;
   document.getElementById("app").innerHTML = `
     <h3 class="u-heading">Tasks</h3>
+    <div class="u-big">${tasks.length - done} left</div>
+    <div class="u-progress"><i style="width:${tasks.length ? Math.round(done * 100 / tasks.length) : 0}%"></i></div>
     <div class="u-label">${done} of ${tasks.length} done</div>
     <div class="u-row"><input class="u-input" id="draft" placeholder="Add a task…"><button class="u-button primary" id="add">Add</button></div>
     ${tasks.map((t, i) => `<div class="u-row"><button class="u-toggle" data-i="${i}" aria-pressed="${t.done}"><span class="box"></span><span class="t">${esc(t.text)}</span></button></div>`).join("")}`;
