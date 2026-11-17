@@ -55,3 +55,9 @@ The script exits without writing a GIF if the run did not show what the captions
 - The bug was blocked as a trap while the LLP device stayed on the previous build.
 - The LLP fix went live on the second attempt, and Delete then worked.
 - Today was slower on the good change.
+
+## "How LLP works" image
+
+`node tools/demo-gif/render-architecture.mjs` renders `architecture.html` to `docs/llp-architecture.png`
+(1080x1350, 4:5). It fails instead of writing the image if any text overflows the frame or the
+comparison row overlaps the diagram. Every claim on it is in SPEC.md sections 3, 6 and 6.1.
