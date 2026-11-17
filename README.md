@@ -6,6 +6,12 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 
 Both sides are real runs, recorded side by side by `node tools/demo-gif/record.mjs`. It writes two short clips (`docs/demo-1-speed.gif`, `docs/demo-2-bug.gif`), the combined GIF, the MP4s, and every measured number in `docs/demo-run.json`. What is scripted is listed in `tools/demo-gif/README.md`. A still "how it works" image, `docs/llp-architecture.png`, is rendered by `node tools/demo-gif/render-architecture.mjs`.
 
+## Status
+
+v0 and experimental. The protocol and APIs may still change. Known open security findings are
+listed in `docs/RED-TEAM.md`. The private keys in `conformance/keys.json` are public test keys for
+the conformance vectors, not secrets.
+
 ## Layout
 
 | Path | What it is |
@@ -227,3 +233,7 @@ What the second implementation found in the spec, and what isn't covered yet (th
 ## Status
 
 The run-anywhere hosts (SPEC section 10) are implemented and tested: see the section above and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11. A review of what a worldwide standard would still need, with severities and fixes, is in `docs/RED-TEAM.md`; `npm run redteam` re-checks the proven findings.
+
+## License
+
+Apache-2.0. See `LICENSE`.

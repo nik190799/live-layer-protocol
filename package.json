@@ -27,7 +27,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
     "assemblyscript": "^0.28.20",
