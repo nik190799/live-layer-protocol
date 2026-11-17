@@ -59,5 +59,6 @@ The script exits without writing a GIF if the run did not show what the captions
 ## "How LLP works" image
 
 `node tools/demo-gif/render-architecture.mjs` renders `architecture.html` to `docs/llp-architecture.png`
-(1080x1350, 4:5). It is a plain schematic kept to one glance: the four
-steps, the app with one layer swapped and its state kept, and the measured timing from `docs/demo-run.json`. The script fails instead of writing the image if anything overflows the frame. Every claim on it is in SPEC.md sections 3, 6 and 6.1.
+(1080x1350, 4:5). It is a schematic of what LLP does: the publisher
+pipeline, the transport, the host's admission gates and atomic swap, sandboxed slots, host-owned state and
+runtime rollback. The script fails instead of writing the image if anything overflows the frame. Every claim on it is in SPEC.md sections 3, 6 and 6.1.
