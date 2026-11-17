@@ -6,6 +6,12 @@ Stream code into a running app. Layers are signed, content-addressed WebAssembly
 
 Both sides are real runs, recorded side by side by `node tools/demo-gif/record.mjs`. It writes two short clips (`docs/demo-1-speed.gif`, `docs/demo-2-bug.gif`), the combined GIF, the MP4s, and every measured number in `docs/demo-run.json`. What is scripted is listed in `tools/demo-gif/README.md`. A still "how it works" image, `docs/llp-architecture.png`, is rendered by `node tools/demo-gif/render-architecture.mjs`.
 
+## Status
+
+v0 and experimental. The protocol and APIs may still change. Known open security findings are
+listed in `docs/RED-TEAM.md`. The private keys in `conformance/keys.json` are public test keys for
+the conformance vectors, not secrets.
+
 ## Layout
 
 | Path | What it is |
