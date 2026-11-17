@@ -13,23 +13,16 @@ function render() {
     <div class="u-progress"><i style="width:${tasks.length ? Math.round(done * 100 / tasks.length) : 0}%"></i></div>
     <div class="u-label">${done} of ${tasks.length} done</div>
     <div class="u-row"><input class="u-input" id="draft" placeholder="Add a task…"><button class="u-button primary" id="add">Add</button></div>
-    ${tasks.map((t, i) => `<div class="u-row"><button class="u-toggle" data-i="${i}" aria-pressed="${t.done}"><span class="box"></span><span class="t">${esc(t.text)}</span></button><button class="u-button del" data-i="${i}">Delete</button></div>`).join("")}`;
+    ${tasks.map((t, i) => `<div class="u-row"><button class="u-toggle" data-i="${i}" aria-pressed="${t.done}"><span class="box"></span><span class="t">${esc(t.text)}</span></button></div>`).join("")}`;
   document.getElementById("draft").value = draft;
   document.getElementById("add").onclick = add;
   document.getElementById("draft").onkeydown = (e) => { if (e.key === "Enter") add(); };
   document.querySelectorAll(".u-toggle").forEach((b) => (b.onclick = () => toggle(+b.dataset.i)));
-  document.querySelectorAll(".del").forEach((b) => (b.onclick = () => remove(+b.dataset.i)));
 }
 function add() {
   const d = document.getElementById("draft");
   if (!d.value) return;
   tasks.push({ text: d.value, done: false }); d.value = "";
-  save(); render();
-}
-function remove(gone) {
-  const kept = [];
-  for (let i = 0; i <= tasks.length; i++) if (i !== gone) kept.push({ text: tasks[i].text, done: tasks[i].done });
-  tasks = kept;
   save(); render();
 }
 function toggle(i) { tasks[i].done = !tasks[i].done; save(); render(); }
