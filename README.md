@@ -233,3 +233,7 @@ What the second implementation found in the spec, and what isn't covered yet (th
 ## Status
 
 The run-anywhere hosts (SPEC section 10) are implemented and tested: see the section above and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11. A review of what a worldwide standard would still need, with severities and fixes, is in `docs/RED-TEAM.md`; `npm run redteam` re-checks the proven findings.
+
+## License
+
+Apache-2.0. See `LICENSE`.
