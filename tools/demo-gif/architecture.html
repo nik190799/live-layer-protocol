@@ -1,54 +1,59 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>How LLP works</title>
-<!-- "How LLP works" image for launch posts, kept to one glance. Rendered to docs/llp-architecture.png
-     (1080x1350) by node tools/demo-gif/render-architecture.mjs. Claims are in SPEC.md sections 3, 6 and 6.1. -->
+<!-- "How LLP works" image for launch posts: a plain schematic, readable at one glance. Rendered to
+     docs/llp-architecture.png (1080x1350) by node tools/demo-gif/render-architecture.mjs.
+     Claims are in SPEC.md sections 3, 6 and 6.1; the timings are from docs/demo-run.json. -->
 <style>
-:root { --bg: #0b0f15; --panel: #141b26; --line: #2a3648; --ink: #f2f5fa; --muted: #8a96aa; --live: #3ddc97; --accent: #8b9bff; }
+:root { --bg: #f4f3ef; --ink: #121212; --mid: #6b6b66; --rule: #cfcdc6; --acc: #1f6f50; }
 * { box-sizing: border-box; }
-html, body { margin: 0; width: 720px; height: 900px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: Inter, system-ui, sans-serif; }
-.wrap { height: 900px; padding: 0 44px; justify-content: center; display: flex; flex-direction: column; align-items: center; text-align: center; }
-.k { font: 800 15px "JetBrains Mono", monospace; letter-spacing: .18em; color: var(--accent); }
-h1 { margin: 12px 0 0; font: 800 54px/1.03 Inter, sans-serif; letter-spacing: -0.035em; }
-h1 em { font-style: normal; color: var(--live); }
-.flow { margin-top: 56px; display: flex; align-items: center; gap: 8px; }
-.s { width: 122px; padding: 16px 6px 13px; border-radius: 20px; background: var(--panel); border: 2px solid var(--line); }
-.s i { display: block; font: normal 34px/1 system-ui, sans-serif; }
-.s b { display: block; margin-top: 9px; font: 800 18px Inter, sans-serif; }
-.s.go { border-color: var(--live); background: #10241c; } .s.go b { color: var(--live); }
-.ar { font: 800 24px Inter, sans-serif; color: #4a5a74; }
-.down { margin: 10px 0 4px; font: 800 30px Inter, sans-serif; color: var(--live); line-height: 1; padding-left: 488px; }
-.app { width: 632px; border: 2px solid var(--line); border-radius: 28px; padding: 18px 22px 22px; background: #10161f; }
-.app .cap { font: 700 14px "JetBrains Mono", monospace; letter-spacing: .1em; color: var(--muted); }
-.layers { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.l { height: 64px; border-radius: 14px; border: 2px solid #33415a; background: #1b2433; display: grid; place-items: center; font: 700 17px Inter, sans-serif; color: #c7d0de; }
-.l.new { border-color: var(--live); background: #10241c; color: var(--live); box-shadow: 0 0 0 5px rgba(61,220,151,.16); }
-.data { margin-top: 12px; height: 52px; border-radius: 14px; background: #2a2140; border: 2px solid #5b4a8a; display: grid; place-items: center; font: 700 17px Inter, sans-serif; color: #d9ccff; }
-.wins { margin-top: 56px; display: flex; gap: 14px; }
-.w { width: 198px; padding: 16px 8px; border-radius: 18px; background: var(--panel); border: 1px solid var(--line); font: 800 21px/1.2 Inter, sans-serif; }
-.w span { color: var(--live); }
+html, body { margin: 0; width: 720px; height: 900px; overflow: hidden; background: var(--bg); color: var(--ink); font-family: Inter, sans-serif; }
+.wrap { padding: 64px 56px 0; }
+.k { font: 500 12px "JetBrains Mono", "DejaVu Sans Mono", monospace; letter-spacing: .14em; color: var(--mid); }
+h1 { margin: 22px 0 0; font: 600 44px/1.08 "Inter Display", Inter, sans-serif; letter-spacing: -0.025em; }
+h1 span { color: var(--mid); }
+svg { display: block; margin-top: 96px; overflow: visible; }
+svg text { font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; font-size: 13px; fill: var(--ink); }
+svg .m { fill: var(--mid); }
+.foot { position: absolute; left: 56px; right: 56px; bottom: 60px; border-top: 1px solid var(--rule); padding-top: 18px;
+  display: flex; justify-content: space-between; font: 500 13px "JetBrains Mono", "DejaVu Sans Mono", monospace; color: var(--mid); }
+.foot b { color: var(--ink); font-weight: 600; }
 </style>
 <div class="wrap">
   <div class="k">LIVE LAYER PROTOCOL</div>
-  <h1>Change a <em>running</em> app<br>without restarting it</h1>
-  <div class="flow">
-    <div class="s"><i>🤖</i><b>AI edits</b></div><div class="ar">→</div>
-    <div class="s"><i>🧪</i><b>Tested</b></div><div class="ar">→</div>
-    <div class="s"><i>🔏</i><b>Signed</b></div><div class="ar">→</div>
-    <div class="s go"><i>⚡</i><b>Swapped</b></div>
-  </div>
-  <div class="down">↓</div>
-  <div class="app">
-    <div class="cap">THE RUNNING APP</div>
-    <div class="layers"><div class="l">Header</div><div class="l">Footer</div><div class="l new">Tasks v2</div></div>
-    <div class="data">Your data stays put</div>
-  </div>
-  <div class="wins">
-    <div class="w"><span>✓</span> No restart</div>
-    <div class="w"><span>✓</span> Data kept</div>
-    <div class="w"><span>✓</span> Bugs blocked</div>
-  </div>
+  <h1>Swap code in a running app.<br><span>Checked first. State kept.</span></h1>
+  <svg width="608" height="440" viewBox="0 0 608 440">
+    <defs>
+      <pattern id="h" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="#bdbab2" stroke-width="2"/></pattern>
+      <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="#1f6f50"/></marker>
+    </defs>
+    <!-- pipeline -->
+    <line x1="6" y1="10" x2="596" y2="10" stroke="#121212" stroke-width="1.5"/>
+    <g fill="#f4f3ef" stroke="#121212" stroke-width="1.5">
+      <circle cx="6" cy="10" r="5.5"/><circle cx="202" cy="10" r="5.5"/><circle cx="398" cy="10" r="5.5"/>
+    </g>
+    <circle cx="596" cy="10" r="6" fill="#1f6f50"/>
+    <text x="0" y="40">01 change</text><text class="m" x="0" y="58">one layer</text>
+    <text x="196" y="40">02 verify</text><text class="m" x="196" y="58">on copied state</text>
+    <text x="392" y="40">03 sign</text><text class="m" x="392" y="58">approved key</text>
+    <text x="608" y="40" text-anchor="end" style="fill:#1f6f50">04 swap</text><text class="m" x="608" y="58" text-anchor="end">no restart</text>
+    <!-- route into the app -->
+    <path d="M596 72 V231 H528" fill="none" stroke="#1f6f50" stroke-width="1.5" marker-end="url(#a)"/>
+    <!-- the app -->
+    <rect x="0.75" y="110" width="510" height="320" fill="none" stroke="#121212" stroke-width="1.5"/>
+    <text class="m" x="22" y="140">running app</text>
+    <rect x="22" y="158" width="466" height="46" fill="none" stroke="#121212"/>
+    <text x="40" y="186">layer · header</text>
+    <rect x="22" y="212" width="466" height="46" fill="#1f6f50"/>
+    <text x="40" y="240" style="fill:#f4f3ef">layer · tasks</text><text x="470" y="240" text-anchor="end" style="fill:#cfe6db">v1 → v2</text>
+    <rect x="22" y="266" width="466" height="46" fill="none" stroke="#121212"/>
+    <text x="40" y="294">layer · footer</text>
+    <rect x="22" y="344" width="466" height="62" fill="url(#h)" stroke="#121212"/>
+    <rect x="40" y="361" width="226" height="28" fill="#f4f3ef"/>
+    <text x="48" y="380">state · owned by the host</text>
+  </svg>
 </div>
+<div class="foot"><span>same change, measured</span><span>LLP <b>1.1 s</b> · push + CI + restart <b>37 s</b></span></div>
 <script>
 const q = new URLSearchParams(location.search);
 if (q.get("zoom")) document.documentElement.style.zoom = q.get("zoom");
