@@ -1,5 +1,7 @@
 # Live Layer Protocol (LLP) - v0 reference implementation
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24349382.svg)](https://doi.org/10.5281/zenodo.24349382)
+
 Stream code into a running app. Layers are signed, content-addressed WebAssembly modules; the host verifies, rehearses, and swaps them in place in milliseconds without losing state. See `SPEC.md`.
 
 <img src="docs/demo.gif" width="420" alt="The same AI change raced two ways: today's git push, CI and restart takes tens of seconds and wipes the user's unsaved text, while LLP is live in about a second and keeps it; then a buggy change breaks today's app until a rollback, while LLP blocks it before any user gets it">
@@ -233,6 +235,21 @@ What the second implementation found in the spec, and what isn't covered yet (th
 ## Status
 
 The run-anywhere hosts (SPEC section 10) are implemented and tested: see the section above and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11. A review of what a worldwide standard would still need, with severities and fixes, is in `docs/RED-TEAM.md`; `npm run redteam` re-checks the proven findings.
+
+## Citation
+
+The paper is in `paper/` and on Zenodo: [doi:10.5281/zenodo.24349382](https://doi.org/10.5281/zenodo.24349382).
+
+```bibtex
+@misc{kadalge2026llp,
+  author    = {Kadalge, Nikhil Ajay},
+  title     = {Live Layer Protocol: Streaming Signed, Verified WebAssembly Layers into Running Applications},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.24349382},
+  url       = {https://doi.org/10.5281/zenodo.24349382}
+}
+```
 
 ## License
 
