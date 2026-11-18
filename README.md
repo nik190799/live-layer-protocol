@@ -1,4 +1,4 @@
-# Live Layer Protocol (LLP) — v0 reference implementation
+# Live Layer Protocol (LLP) - v0 reference implementation
 
 Stream code into a running app. Layers are signed, content-addressed WebAssembly modules; the host verifies, rehearses, and swaps them in place in milliseconds without losing state. See `SPEC.md`.
 
