@@ -5,6 +5,7 @@ authors:
   - family-names: Kadalge
     given-names: Nikhil Ajay
     orcid: "https://orcid.org/0009-0004-8859-5607"
+    email: nikhil.kadalge@gmail.com
 license: Apache-2.0
 repository-code: "https://github.com/nik190799/live-layer-protocol"
 preferred-citation:
@@ -14,6 +15,7 @@ preferred-citation:
     - family-names: Kadalge
       given-names: Nikhil Ajay
       orcid: "https://orcid.org/0009-0004-8859-5607"
+      email: nikhil.kadalge@gmail.com
   year: 2026
   publisher:
     name: Zenodo
