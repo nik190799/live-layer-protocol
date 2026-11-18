@@ -1,0 +1,281 @@
+{
+ "generated": "2026-11-17T14:09:07.457Z",
+ "node": "v22.23.4",
+ "cases": {
+  "crowdstrike": {
+   "case": "crowdstrike",
+   "hosts": 1000,
+   "legacy": {
+    "upBefore": 1000,
+    "crashed": 1000,
+    "crashedPct": 100,
+    "stillDownAfterReboot": 1000,
+    "recovery": "manual, per machine (not simulated)"
+   },
+   "llp": {
+    "haltedAt": 1,
+    "reason": "10 of 10 hosts failed",
+    "steps": [
+     {
+      "percent": 1,
+      "live": 0,
+      "skipped": 990,
+      "failed": 10,
+      "pending": 0,
+      "offline": 0
+     }
+    ],
+    "rolledBack": true,
+    "recovered": true,
+    "hostsThatRanBadUpdate": 10,
+    "hostsThatRanBadPct": 1,
+    "hostsDown": 0,
+    "onBadUpdateAtEnd": 0,
+    "eventsDropped": 10,
+    "msPublishToFleetRolledBack": 1169,
+    "scannedBefore": 1000
+   }
+  },
+  "knight": {
+   "case": "knight",
+   "servers": 8,
+   "minutes": 45,
+   "partitionHealsAtMinute": 5,
+   "legacy": {
+    "parentOrders": 212,
+    "childOrders": 3676,
+    "unintendedChildOrders": 3464,
+    "shares": 535000,
+    "intendedShares": 212000,
+    "perServer": [
+     27,
+     27,
+     27,
+     27,
+     26,
+     26,
+     26,
+     3490
+    ]
+   },
+   "legacyWithRollback": {
+    "rollbackAtMinute": 22.5,
+    "parentOrders": 212,
+    "childOrders": 9974,
+    "unintendedChildOrders": 9762,
+    "shares": 1081100,
+    "intendedShares": 212000,
+    "perServer": [
+     882,
+     865,
+     982,
+     965,
+     947,
+     930,
+     913,
+     3490
+    ]
+   },
+   "llpGatedOnComplete": {
+    "parentOrders": 212,
+    "childOrders": 212,
+    "unintendedChildOrders": 0,
+    "shares": 212000,
+    "intendedShares": 212000,
+    "perServer": [
+     27,
+     27,
+     27,
+     27,
+     26,
+     26,
+     26,
+     26
+    ],
+    "rolloutResult": {
+     "ok": true,
+     "reason": null
+    },
+    "convergenceAtRelease": {
+     "live": 7,
+     "offline": 1,
+     "converged": true,
+     "complete": false,
+     "laggards": [
+      "smars-8"
+     ]
+    },
+    "flagOnAtMinute": 5,
+    "allServersOnNewCodeAtMinute": 5
+   },
+   "llpGatedOnConverged": {
+    "parentOrders": 212,
+    "childOrders": 243,
+    "unintendedChildOrders": 31,
+    "shares": 212400,
+    "intendedShares": 212000,
+    "perServer": [
+     27,
+     27,
+     27,
+     27,
+     26,
+     26,
+     26,
+     57
+    ],
+    "rolloutResult": {
+     "ok": true,
+     "reason": null
+    },
+    "convergenceAtRelease": {
+     "live": 7,
+     "offline": 1,
+     "converged": true,
+     "complete": false,
+     "laggards": [
+      "smars-8"
+     ]
+    },
+    "flagOnAtMinute": 0,
+    "allServersOnNewCodeAtMinute": 5
+   },
+   "llpUngated": {
+    "parentOrders": 212,
+    "childOrders": 243,
+    "unintendedChildOrders": 31,
+    "shares": 212400,
+    "intendedShares": 212000,
+    "perServer": [
+     27,
+     27,
+     27,
+     27,
+     26,
+     26,
+     26,
+     57
+    ],
+    "rolloutResult": {
+     "ok": true,
+     "reason": null
+    },
+    "convergenceAtRelease": {
+     "live": 7,
+     "offline": 1,
+     "converged": true,
+     "complete": false,
+     "laggards": [
+      "smars-8"
+     ]
+    },
+    "flagOnAtMinute": 0,
+    "allServersOnNewCodeAtMinute": 5
+   }
+  },
+  "cloudflare": {
+   "case": "cloudflare",
+   "edges": 20,
+   "windowMs": 2000,
+   "legacy": {
+    "servedPerWindowBefore": 98387,
+    "servedPerWindowAfter": 10,
+    "throughputPctOfNormal": 0
+   },
+   "llp": {
+    "haltedAt": 10,
+    "reason": "1 of 1 hosts failed",
+    "rolledBack": true,
+    "recovered": true,
+    "edgesThatRanBadRule": 1,
+    "edgesThatRanBadPct": 5,
+    "requestsFailedDuringRollout": 1,
+    "availabilityDuringRolloutPct": 99.998,
+    "throughputDuringRolloutPctOfNormal": 103.2,
+    "throughputAfterPctOfNormal": 107.3,
+    "callsKilledByTimeBudget": 1,
+    "cpuMsLostPerKill": 100,
+    "msPublishToFleetRolledBack": 2265,
+    "traffic": [
+     {
+      "percent": 10,
+      "served": 51570,
+      "failed": 1
+     }
+    ],
+    "servedPerWindowBefore": 49965
+   },
+   "llpGlobalPush": {
+    "haltedAt": 100,
+    "reason": "20 of 20 hosts failed",
+    "rolledBack": true,
+    "recovered": true,
+    "edgesThatRanBadRule": 20,
+    "edgesThatRanBadPct": 100,
+    "requestsFailedDuringRollout": 20,
+    "availabilityDuringRolloutPct": 99.955,
+    "throughputDuringRolloutPctOfNormal": 89,
+    "throughputAfterPctOfNormal": 99.1,
+    "callsKilledByTimeBudget": 20,
+    "cpuMsLostPerKill": 100,
+    "msPublishToFleetRolledBack": 2347,
+    "traffic": [
+     {
+      "percent": 100,
+      "served": 44836,
+      "failed": 20
+     }
+    ],
+    "servedPerWindowBefore": 50396
+   }
+  },
+  "fastly": {
+   "case": "fastly",
+   "edges": 20,
+   "requestsPerEdge": 300,
+   "customers": 10,
+   "legacy": {
+    "okBeforePct": 100,
+    "edgesDown": 20,
+    "availabilityPct": 0,
+    "otherCustomersAvailabilityPct": 0
+   },
+   "llp": {
+    "may12RolloutPassed": true,
+    "edgesOnV2BeforeTrigger": 20,
+    "served": 5980,
+    "total": 6000,
+    "availabilityPct": 99.667,
+    "otherCustomersAvailabilityPct": 100,
+    "requestsFailed": 20,
+    "perHostReverts": 20,
+    "edgesNowOnV1": 20,
+    "controllerSees": {
+     "reverted": 20,
+     "live": 0,
+     "converged": false
+    },
+    "edgesDown": 0,
+    "acmeServedAfterRevert": true
+   }
+  },
+  "hotfix": {
+   "case": "hotfix",
+   "clients": 1000,
+   "rolloutOk": true,
+   "converged": true,
+   "steps": [
+    1,
+    10,
+    50,
+    100
+   ],
+   "msFixPublishedToAllClients": 1828,
+   "clientsOnFix": 1000,
+   "sessionsPreserved": 1000,
+   "sessionsLost": 0,
+   "purchaseWorksBefore": 0,
+   "purchaseWorksAfter": 1000
+  }
+ }
+}
