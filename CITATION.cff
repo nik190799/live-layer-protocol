@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite the paper below."
+title: "Live Layer Protocol (LLP)"
+authors:
+  - family-names: Kadalge
+    given-names: Nikhil Ajay
+    orcid: "https://orcid.org/0009-0004-8859-5607"
+license: Apache-2.0
+repository-code: "https://github.com/nik190799/live-layer-protocol"
+preferred-citation:
+  type: article
+  title: "Live Layer Protocol: Streaming Signed, Verified WebAssembly Layers into Running Applications"
+  authors:
+    - family-names: Kadalge
+      given-names: Nikhil Ajay
+      orcid: "https://orcid.org/0009-0004-8859-5607"
+  year: 2026
+  publisher:
+    name: Zenodo
+  doi: "10.5281/zenodo.24349382"
+  url: "https://doi.org/10.5281/zenodo.24349382"
