@@ -280,7 +280,7 @@ function make(n, slot) {
     case "toggle": el = document.createElement("button"); el.className = "u-toggle"; el.type = "button"; el.setAttribute("aria-pressed", a.on === "1");
       el.innerHTML = '<span class="box"></span><span class="t"></span>'; el.lastChild.textContent = txt(n); el.onclick = () => act(slot, a.id); return el;
     case "input": el = document.createElement("input"); el.className = "u-input"; el.id = `in-${slot}-${a.bind}`; el.placeholder = a.placeholder || ""; el.dataset.bind = a.bind;
-      el.value = host.kv.get(a.bind) ?? ""; el.oninput = () => { host.setBound(a.bind, el.value); saveKv(); };
+      el.value = host.bound(a.bind) ?? ""; el.oninput = () => { host.setBound(a.bind, el.value); saveKv(); };
       el.onkeydown = (e) => { if (e.key === "Enter" && a.submit) act(slot, a.submit); }; return el;
     case "progress": el = document.createElement("div"); el.className = "u-progress"; el.setAttribute("role", "progressbar"); el.setAttribute("aria-valuenow", a.value);
       el.innerHTML = "<i></i>"; el.firstChild.style.width = Math.max(0, Math.min(100, +a.value || 0)) + "%"; return el;

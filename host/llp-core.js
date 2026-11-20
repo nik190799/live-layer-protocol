@@ -721,8 +721,15 @@ export class LiveHost {
   // still queued, the write waits its turn, so "type A, click, type B, click" keeps its order.
   setBound(key, value) {
     if (this.role === "client" && key.startsWith("shared/")) { this.log("error", `input bound to ${key}: shared/ is owned by the server host; dropped`); return; }
-    if (this.pending) this.exclusive(() => { this.kv.set(key, value); }); else this.kv.set(key, value);
+    if (!this.pending) { this.kv.set(key, value); return; }
+    const n = this.liveSeq = (this.liveSeq ?? 0) + 1;
+    (this.live ??= new Map()).set(key, { value, n });
+    this.exclusive(() => { this.kv.set(key, value); if (this.live.get(key)?.n === n) this.live.delete(key); });
   }
+  // The text of a bound input as the person last typed it. While a swap is in flight a typed value
+  // waits in the queue and state still holds the older text; a renderer that redraws the input from
+  // state alone would drop that keystroke. Renderers should read input values from here.
+  bound(key) { const l = this.live?.get(key); return l ? l.value : this.kv.get(key); }
 
   // The server host's copy of shared/ keys arriving on a client (bypasses the client-side write rule).
   applyShared({ set = [], del = [], full = false }) {

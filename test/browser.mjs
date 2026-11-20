@@ -71,6 +71,24 @@ try {
   await d.waitForFunction(() => document.getElementById("screen").textContent.includes("Tasks v2"), null, { timeout: 10000 });
   check("B7 demo page boots and swaps to v2 with layers in workers", d.workers().length >= 2, `${d.workers().length} workers`);
 
+  // A release lands while the person is mid-word in a bound input: no keystroke may be lost.
+  const typed = [];
+  for (let i = 0; i < 5; i++) {
+    const t = await browser.newPage();
+    await t.goto(base + "/web/index.html");
+    await t.waitForFunction(() => document.getElementById("screen")?.textContent.includes("Tasks"), null, { timeout: 30000 });
+    const input = '#screen input[data-bind="draft"]';
+    await t.click(input); await t.type(input, "Buy mi");
+    const push = t.evaluate(() => document.querySelector('[data-push="v2"]').click());
+    await t.type(input, "lk", { delay: 15 });
+    await push;
+    await t.waitForFunction(() => document.getElementById("screen").textContent.includes("Tasks v2"), null, { timeout: 10000 });
+    await t.type(input, " today", { delay: 5 });
+    typed.push(await t.inputValue(input));
+    await t.close();
+  }
+  check("B9 text typed while a swap is in flight is kept (5 runs)", typed.every((v) => v === "Buy milk today"), [...new Set(typed)].join(" / "));
+
   // SEC-05: a release from a key this device doesn't trust is never trusted automatically, not even
   // the first one; the page asks, and shows a fingerprint to compare with the other device's screen.
   const w = await browser.newPage();
