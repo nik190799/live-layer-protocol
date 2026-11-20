@@ -225,9 +225,15 @@ const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart
 async function sha256(bytes) { return hex(await crypto.subtle.digest("SHA-256", bytes)); }
 
 // Canonical JSON: sorted keys, no whitespace — what gets signed.
+// This is RFC 8785 (JCS): keys sorted by UTF-16 code units, strings and numbers as JSON.stringify
+// writes them. Members whose value is undefined are left out, as JSON.stringify does. A string with
+// a lone surrogate has no canonical form (I-JSON, RFC 7493), so it throws and nothing that holds
+// one can be signed or verified.
+const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 function canonical(v) {
   if (Array.isArray(v)) return "[" + v.map(canonical).join(",") + "]";
-  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canonical(v[k])).join(",") + "}";
+  if (v && typeof v === "object") return "{" + Object.keys(v).filter((k) => v[k] !== undefined).sort().map((k) => canonical(k) + ":" + canonical(v[k])).join(",") + "}";
+  if (typeof v === "string" && LONE.test(v)) throw new Error("canonical JSON: lone surrogate in a string");
   return JSON.stringify(v);
 }
 const b64 = {
@@ -551,13 +557,28 @@ function privatePrefixes(manifest) {
   if (!Array.isArray(p) || p.length > 64 || !p.every((x) => typeof x === "string" && x.startsWith("shared/") && x.length > 7 && x.length <= 256)) throw new LayerError("private must be a list of up to 64 shared/ prefixes");
   return p;
 }
+// manifest.personal = ["shared/users/", "server/profiles/", ...] (PR-02): under each prefix, the first
+// path segment names the person the key is about. The server host exports and erases a person's data
+// by these prefixes (section 14). Private prefixes (above) count as personal too.
+function personalPrefixes(manifest) {
+  const p = manifest.personal;
+  if (p === undefined) return [];
+  if (!Array.isArray(p) || p.length > 64 || !p.every((x) => typeof x === "string" && x.length > 0 && x.length <= 256 && x.endsWith("/") && !x.startsWith(HOST_KEYS) && !x.startsWith("__")))
+    throw new LayerError('personal must be a list of up to 64 key prefixes ending in "/" (not __ keys)');
+  return p;
+}
+// The person a key belongs to under the given prefixes, or null.
+function ownerOf(key, prefixes) {
+  for (const p of prefixes) if (key.startsWith(p)) { const seg = key.slice(p.length).split("/")[0]; if (seg && key.length > p.length + seg.length) return seg; }
+  return null;
+}
 // ---------- protocol version (GOV-01) ----------
 // A manifest may say which LLP version it follows: "llp": 1. A host refuses versions it doesn't
 // implement. Version 1 is strict: every top-level field must be one this host understands (fields
 // starting "x-" are ignorable extensions), and isolation is the default, not opt-in: a v1 manifest must
 // declare "keys" (6.2) and "caps" (9). Manifests without "llp" are v0 and keep the v0 rules.
 const LLP_VERSION = 1;
-const MANIFEST_FIELDS = new Set(["llp", "app", "version", "epoch", "layers", "order", "hosts", "keys", "caps", "private", "channel", "rollout", "overlap"]);
+const MANIFEST_FIELDS = new Set(["llp", "app", "version", "epoch", "layers", "order", "hosts", "keys", "caps", "private", "personal", "channel", "rollout", "overlap"]);
 function protocolProblem(m) {
   if (m.llp === undefined) return null;
   if (!Number.isSafeInteger(m.llp) || m.llp < 1) return `llp must be a positive integer, got ${JSON.stringify(m.llp)}`;
@@ -739,36 +760,40 @@ class LiveHost {
   async applyNow(manifest, sig, fetchBlob) {
     const t0 = performance.now();
     if (!this.headless && this.limits.isolation !== "inline") this.spare ??= spawnWorker(this.limits); // boot a worker while we verify and fetch
-    if (!manifest || typeof manifest !== "object" || !manifest.layers || typeof manifest.layers !== "object") return this.reject(manifest ?? {}, "malformed manifest");
+    if (!manifest || typeof manifest !== "object" || !manifest.layers || typeof manifest.layers !== "object") return this.reject(manifest ?? {}, "malformed manifest", "malformed");
     if (!this.allowUnsigned) {
-      if (!this.trustedKeys?.length) return this.reject(manifest, "no trusted keys configured; refusing every manifest (fail closed)");
+      if (!this.trustedKeys?.length) return this.reject(manifest, "no trusted keys configured; refusing every manifest (fail closed)", "untrusted");
       let ok = false;
       for (const k of this.trustedKeys) if (await verifyManifest(manifest, sig, k).catch(() => false)) { ok = true; break; }
-      if (!ok) return this.reject(manifest, "signature not trusted");
-      if (!this.app) return this.reject(manifest, "host has no app pinned; refusing (pass the app name when creating the host)");
+      if (!ok) return this.reject(manifest, "signature not trusted", "untrusted");
+      if (!this.app) return this.reject(manifest, "host has no app pinned; refusing (pass the app name when creating the host)", "untrusted");
     }
-    if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app");
+    if (this.app && manifest.app !== this.app) return this.reject(manifest, "different app", "wrong_app");
     const pp = protocolProblem(manifest);
-    if (pp) return this.reject(manifest, pp);
+    if (pp) return this.reject(manifest, pp, "protocol");
     const vp = this.versionProblem(manifest);
-    if (vp) return this.reject(manifest, vp);
-    for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`);
+    if (vp) return this.reject(manifest, vp, vp.startsWith("stale ") ? "stale" : "bad_version");
+    for (const slot of Object.keys(manifest.layers)) if (!PLACES.has(placement(manifest, slot))) return this.reject(manifest, `${slot}: unknown host "${placement(manifest, slot)}"`, "malformed");
 
     let rules;
     let caps;
     try {
-      rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest);
+      for (const [slot, h] of Object.entries(manifest.layers)) if (typeof h !== "string" || !/^[0-9a-f]{64}$/.test(h)) throw new LayerError(`layers.${slot} must be a lowercase hex SHA-256`);
+      if (manifest.order !== undefined && !(Array.isArray(manifest.order) && manifest.order.every((s) => typeof s === "string" && Object.hasOwn(manifest.layers, s)))) throw new LayerError("order must be a list of slot names from layers");
+      rules = keyRules(manifest); caps = capRules(manifest); privatePrefixes(manifest); personalPrefixes(manifest);
       if (manifest.overlap !== undefined && !(Number.isSafeInteger(manifest.overlap) && manifest.overlap >= 0)) throw new LayerError("overlap must be a non-negative number of milliseconds");
-    } catch (e) { return this.reject(manifest, e.message); }
+    } catch (e) { return this.reject(manifest, e.message, "malformed"); }
 
     // The whole manifest is verified, but only the slots placed on this host are fetched and run.
-    const mine = Object.entries(manifest.layers).filter(([slot]) => this.placedHere(manifest, slot));
+    // Slots are staged in canonical (sorted) order: the signature covers the canonical form, not the
+    // order keys arrive in, so a relay must not be able to change what runs first.
+    const mine = Object.keys(manifest.layers).sort().map((slot) => [slot, manifest.layers[slot]]).filter(([slot]) => this.placedHere(manifest, slot));
     // Fetch only what we don't have (content addressing).
     const wanted = [...new Set(mine.map(([, h]) => h))].filter((h) => !this.blobs.has(h));
     for (const h of wanted) {
       const bytes = await fetchBlob(h);
-      if (!bytes || bytes.byteLength > this.limits.blobMb * 2 ** 20) return this.reject(manifest, `blob ${h.slice(0, 8)} is ${bytes ? Math.ceil(bytes.byteLength / 2 ** 20) + " MB, over the " + this.limits.blobMb + " MB limit" : "missing"}`);
-      if ((await sha256(bytes)) !== h) return this.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`);
+      if (!bytes || bytes.byteLength > this.limits.blobMb * 2 ** 20) return this.reject(manifest, `blob ${h.slice(0, 8)} is ${bytes ? Math.ceil(bytes.byteLength / 2 ** 20) + " MB, over the " + this.limits.blobMb + " MB limit" : "missing"}`, "blob");
+      if ((await sha256(bytes)) !== h) return this.reject(manifest, `blob ${h.slice(0, 8)} failed integrity check`, "blob");
       this.blobs.set(h, bytes);
     }
 
@@ -782,17 +807,22 @@ class LiveHost {
         staged.push({ slot, hash, box });
         const want = box.schema;
         const have = shadowKv.get(`__schema.${slot}`) ?? want;
-        if (want !== have) {
+        // A server host with several channels shares one store between them (SPEC 10.5): when another
+        // channel already migrated this slot's data to a newer schema, older code joins it without
+        // migrating back, under the same expand/contract rule as the overlap window.
+        const joins = want < have && this.siblingSchema?.(slot, have) === true;
+        if (want !== have && !joins) {
           if (!box.hasMigrate) throw new LayerError(`${slot}: schema ${have}→${want} but no llp_migrate`);
           await this.call(slot, box, "llp_migrate", shadowKv, null, [have]);
         }
-        shadowKv.set(`__schema.${slot}`, want);
+        if (joins) this.log("warn", `${slot}: data is on schema ${have} (migrated by another channel); this release's code expects ${want} and must read it (expand/contract)`, { slot });
+        else shadowKv.set(`__schema.${slot}`, want);
         // health check: must render cleanly against real state (a headless layer may have no view)
         if (box.hasView) await this.call(slot, box, "llp_view", shadowKv, null, [], { apply: !this.headless });
       }
     } catch (e) {
       for (const s of staged) s.box.kill();
-      return this.reject(manifest, e.message);
+      return this.reject(manifest, e.message, "layer_failed");
     }
 
     // Atomic commit.
@@ -809,7 +839,7 @@ class LiveHost {
     for (const [slot, s] of this.slots) s.box.rule = this.ruleFor(slot); // unchanged code can still get new key rules
     const keep = new Set(mine.map(([slot]) => slot));
     for (const s of [...this.slots.keys()]) if (!keep.has(s)) { this.retire(s, this.slots.get(s), prevVersion); this.slots.delete(s); }
-    this.order = (manifest.order ?? Object.keys(manifest.layers)).filter((s) => keep.has(s));
+    this.order = (manifest.order ?? Object.keys(manifest.layers).sort()).filter((s) => keep.has(s));
     this.app = manifest.app;
     this.version = manifest.version;
     this.epoch = manifest.epoch ?? 0;
@@ -824,9 +854,10 @@ class LiveHost {
   retire(slot, cur, version) { this.recycle(cur.box); }
   committed(prev, next) {}
 
-  reject(manifest, reason) {
-    this.log("reject", `v${manifest.version} rejected: ${reason}`, { version: manifest.version });
-    return { ok: false, reason, version: manifest.version };
+  // code (SPEC section 5, nack.code): malformed | untrusted | wrong_app | protocol | bad_version | stale | blob | layer_failed
+  reject(manifest, reason, code) {
+    this.log("reject", `v${manifest.version} rejected: ${reason}`, { version: manifest.version, code });
+    return { ok: false, code, reason, version: manifest.version };
   }
 
   // ---------- running ----------
@@ -907,8 +938,15 @@ class LiveHost {
   // still queued, the write waits its turn, so "type A, click, type B, click" keeps its order.
   setBound(key, value) {
     if (this.role === "client" && key.startsWith("shared/")) { this.log("error", `input bound to ${key}: shared/ is owned by the server host; dropped`); return; }
-    if (this.pending) this.exclusive(() => { this.kv.set(key, value); }); else this.kv.set(key, value);
+    if (!this.pending) { this.kv.set(key, value); return; }
+    const n = this.liveSeq = (this.liveSeq ?? 0) + 1;
+    (this.live ??= new Map()).set(key, { value, n });
+    this.exclusive(() => { this.kv.set(key, value); if (this.live.get(key)?.n === n) this.live.delete(key); });
   }
+  // The text of a bound input as the person last typed it. While a swap is in flight a typed value
+  // waits in the queue and state still holds the older text; a renderer that redraws the input from
+  // state alone would drop that keystroke. Renderers should read input values from here.
+  bound(key) { const l = this.live?.get(key); return l ? l.value : this.kv.get(key); }
 
   // The server host's copy of shared/ keys arriving on a client (bypasses the client-side write rule).
   applyShared({ set = [], del = [], full = false }) {
@@ -993,7 +1031,7 @@ function make(n, slot) {
     case "toggle": el = document.createElement("button"); el.className = "u-toggle"; el.type = "button"; el.setAttribute("aria-pressed", a.on === "1");
       el.innerHTML = '<span class="box"></span><span class="t"></span>'; el.lastChild.textContent = txt(n); el.onclick = () => act(slot, a.id); return el;
     case "input": el = document.createElement("input"); el.className = "u-input"; el.id = `in-${slot}-${a.bind}`; el.placeholder = a.placeholder || ""; el.dataset.bind = a.bind;
-      el.value = host.kv.get(a.bind) ?? ""; el.oninput = () => { host.setBound(a.bind, el.value); saveKv(); };
+      el.value = host.bound(a.bind) ?? ""; el.oninput = () => { host.setBound(a.bind, el.value); saveKv(); };
       el.onkeydown = (e) => { if (e.key === "Enter" && a.submit) act(slot, a.submit); }; return el;
     case "progress": el = document.createElement("div"); el.className = "u-progress"; el.setAttribute("role", "progressbar"); el.setAttribute("aria-valuenow", a.value);
       el.innerHTML = "<i></i>"; el.firstChild.style.width = Math.max(0, Math.min(100, +a.value || 0)) + "%"; return el;
