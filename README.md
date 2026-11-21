@@ -238,7 +238,7 @@ The run-anywhere hosts (SPEC section 10) are implemented and tested: see the sec
 
 ## Built on LLP: FLOW
 
-[FLOW](https://github.com/nik190799/flow) (Functions as Live Overlays, Without restart) is an architecture on top of LLP. LLP moves signed layers into a running app; FLOW decides who may change what. The company's release opens named spots, people (or AI agents under their grant) sign their own functions into them, and the device checks signatures, data labels and fences before any code runs. Every change can be undone on the device. FLOW uses LLP as a library and doesn't change it.
+[FLOW](https://github.com/nik190799/flow) (Functions as Live Overlays, Without restart) is an architecture on top of LLP. LLP moves signed layers into a running app; FLOW decides who may change what. The company's release opens named spots, people (or AI agents under their grant) sign their own functions into them, and the device checks signatures, data labels and fences before any code runs. Every change can be undone on the device. FLOW uses LLP as a library and doesn't change it. Paper: [doi:10.5281/zenodo.24411135](https://doi.org/10.5281/zenodo.24411135).
 
 ## Citation
 
