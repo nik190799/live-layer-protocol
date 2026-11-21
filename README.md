@@ -236,6 +236,10 @@ What the second implementation found in the spec, and what isn't covered yet (th
 
 The run-anywhere hosts (SPEC section 10) are implemented and tested: see the section above and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11. A review of what a worldwide standard would still need, with severities and fixes, is in `docs/RED-TEAM.md`; `npm run redteam` re-checks the proven findings.
 
+## Built on LLP: FLOW
+
+[FLOW](https://github.com/nik190799/flow) (Functions as Live Overlays, Without restart) is an architecture on top of LLP. LLP moves signed layers into a running app; FLOW decides who may change what. The company's release opens named spots, people (or AI agents under their grant) sign their own functions into them, and the device checks signatures, data labels and fences before any code runs. Every change can be undone on the device. FLOW uses LLP as a library and doesn't change it.
+
 ## Citation
 
 The paper is in `paper/` and on Zenodo: [doi:10.5281/zenodo.24349382](https://doi.org/10.5281/zenodo.24349382).
