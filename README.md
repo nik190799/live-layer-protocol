@@ -1,6 +1,8 @@
 # Live Layer Protocol (LLP) - v0 reference implementation
 
+[![test](https://github.com/nik190799/live-layer-protocol/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/nik190799/live-layer-protocol/actions/workflows/test.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24349382.svg)](https://doi.org/10.5281/zenodo.24349382)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 Stream code into a running app. Layers are signed, content-addressed WebAssembly modules; the host verifies, rehearses, and swaps them in place in milliseconds without losing state. See `SPEC.md`.
 
