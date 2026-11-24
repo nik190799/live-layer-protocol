@@ -12,9 +12,12 @@ Both sides are real runs, recorded side by side by `node tools/demo-gif/record.m
 
 ## Status
 
-v0 and experimental. The protocol and APIs may still change. Known open security findings are
-listed in `docs/RED-TEAM.md`. The private keys in `conformance/keys.json` are public test keys for
-the conformance vectors, not secrets.
+v0 and experimental. The protocol and APIs may still change.
+
+- Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host.
+- Fleet operations (SPEC section 12) and the run-anywhere server and edge hosts (SPEC section 10, see `docs/HOSTS.md`) are implemented and tested.
+- Known v0 gaps are listed in SPEC section 11. A security review, with severities, fixes and the findings still open, is in `docs/RED-TEAM.md`; `npm run redteam` re-checks the proven findings.
+- The private keys in `conformance/keys.json` are public test keys for the conformance vectors, not secrets.
 
 ## Layout
 
@@ -30,14 +33,15 @@ the conformance vectors, not secrets.
 | `layers/variants/` | v2 (migration), broken, crashing, and hanging/memory-hogging variants used in tests |
 | `tools/demo-gif/` | Re-records the demo GIF: a conventional app shipped with git push, GitHub Actions and a restart, next to LLP (see its README) |
 | `test/run.mjs` | The 14 core proof tests (in-process) |
+| `test/security.mjs`, `docs/RED-TEAM.md` | 71 checks that the security review's fixes hold |
 | `test/sandbox.mjs` | 17 tests of the worker sandbox: infinite loops in view, event and migrate, memory blowup, UI flood, input ordering, inline mode |
 | `test/browser.mjs` | The sandbox in real Chromium (needs Playwright; not part of `npm test`) |
-| `test/service.mjs` | 10 tests of the per-device service |
+| `test/service.mjs` | 16 tests of the per-device service |
 | `test/live-e2e.mjs` | 10 over-the-wire tests: real publisher and host processes, plus a rogue stream |
 | `tools/ai-publish.mjs`, `ai/` | AI publishing loop: prompt, model writes a layer, compile, shadow check, approve, stream |
 | `test/ai-loop.mjs` | 15 tests of the AI loop over real processes |
 | `host/fleet.js`, `tools/fleet.mjs`, `host/fleet-host.mjs` | Fleet operations: channels, percentage rollouts, convergence, key rotation (SPEC section 12) |
-| `test/fleet.mjs` | 28 fleet tests: a 48-host simulation plus 20 hosts in 4 real processes over WebSocket |
+| `test/fleet.mjs` | 29 fleet tests: a 48-host simulation plus 20 hosts in 4 real processes over WebSocket |
 | `host/server-host.mjs`, `host/remote-client.mjs`, `layers/server/` | Server/edge host and client link: shared data, secrets, heavy compute (SPEC section 10) |
 | `test/hosts.mjs`, `bench/hosts.mjs` | 30 checks of server and client hosts over real WebSockets; scale measurements (`docs/HOSTS.md`) |
 | `test/channels.mjs` | 15 checks: release channels on the server host with a real fleet controller, partial rollouts, restarts, key rotation |
@@ -92,26 +96,14 @@ On Windows PowerShell use `copy` instead of `cp`.
 
 ## Rebuild the layers from source
 
-Needs clang with the wasm32 target for the C layer. `npm run build` does the same as:
+Needs clang with the wasm32 target for the C layer. This rebuilds every layer in `build/` from its source:
 
 ```bash
 npm install
-npx asc layers/tasks-as/app.ts -o build/tasks.wasm -O3
-clang --target=wasm32 -nostdlib -O2 -Wl,--no-entry -o build/stats.wasm layers/stats-c/stats.c
-for v in tasks_v2 tasks_broken tasks_trap tasks_hang tasks_hang_migrate; do npx asc layers/variants/$v.ts -o build/$v.wasm -O3; done
-
-node test/run.mjs                       # 14 proof tests
-
-# live streaming between two processes
-cp build/tasks.wasm build/live-main.wasm; cp build/stats.wasm build/live-footer.wasm
-node tools/publisher.mjs --port 7700 main=build/live-main.wasm footer=build/live-footer.wasm
-node host/node-host.mjs ws://localhost:7700 keys/publisher.pub.json   # in another terminal
-# now overwrite build/live-main.wasm with any other build and watch the host swap it
+npm run build
 ```
 
-Host commands: `click <slot> <id>`, `set <key> <text>`, `state`.
-
-Requires Node 22+ (for WebCrypto and the built-in WebSocket) and clang with the wasm32 target for the C layer.
+Host commands in `node-host.mjs`: `click <slot> <id>`, `set <key> <text>`, `state`.
 
 ## The Live Layer service (one per device)
 
@@ -119,7 +111,7 @@ Requires Node 22+ (for WebCrypto and the built-in WebSocket) and clang with the 
 
 Install:
 
-- **Windows:** `double-click `Install-LiveLayer.cmd`, or run `powershell -ExecutionPolicy Bypass -File install\install-windows.ps1` (no admin needed; starts at sign-in). Remove with `install\uninstall-windows.ps1`.
+- **Windows:** double-click `Install-LiveLayer.cmd`, or run `powershell -ExecutionPolicy Bypass -File install\install-windows.ps1` (no admin needed; starts at sign-in). Remove with `install\uninstall-windows.ps1`.
 - **Linux / macOS:** `sh install/install-unix.sh` (systemd user service, launchd agent, or a background process).
 
 Then, from any terminal: `llp push <app> <slot>=<file.wasm> ...`, `llp watch ...` (push on every save), `llp status`, `llp key`, `llp open [app]` (prints the UI link), `llp trust <key.json> <app>` (trust a teammate's key for one app).
@@ -180,7 +172,7 @@ rollout stable 10,50,100 main=build/tasks_broken.wasm footer=build/stats.wasm  #
 rotate                                                             # new release key, fleet-wide
 ```
 
-Tests: `npm run test:fleet` (28 checks). In a 48-host simulation: share accuracy over 10,000 ids, channel isolation, exact cohorts, widening only adds hosts, user state kept, offline hosts catching up, a broken release halted at 10% and a crashing one at 20% (caught by host revert reports while traffic runs), release and 2-of-3 root rotation, a revoked key refused, and a late host walking the whole keyring chain. Over the wire: 20 hosts in 4 processes, a 30% rollout, a dead process shown as offline, rotation, restart catch-up, and a rogue stream using the revoked key. `FLEET_HOSTS=300 npm run test:fleet` runs the simulation with 300 hosts.
+Tests: `npm run test:fleet` (29 checks). In a 48-host simulation: share accuracy over 10,000 ids, channel isolation, exact cohorts, widening only adds hosts, user state kept, offline hosts catching up, a broken release halted at 10% and a crashing one at 20% (caught by host revert reports while traffic runs), release and 2-of-3 root rotation, a revoked key refused, and a late host walking the whole keyring chain. Over the wire: 20 hosts in 4 processes, a 30% rollout, a dead process shown as offline, rotation, restart catch-up, and a rogue stream using the revoked key. `FLEET_HOSTS=300 npm run test:fleet` runs the simulation with 300 hosts.
 
 ## Server and edge hosts (same layers, any host)
 
@@ -233,10 +225,6 @@ cd impl/go && go build -o llp-host ./cmd/llp-host
 ```
 
 What the second implementation found in the spec, and what isn't covered yet (the server role), is in `docs/CONFORMANCE.md`.
-
-## Status
-
-The run-anywhere hosts (SPEC section 10) are implemented and tested: see the section above and `docs/HOSTS.md`. Fleet operations (SPEC section 12) are implemented and tested. Every layer runs in its own worker with a time limit and a memory cap (SPEC section 6.1), so a layer stuck in an infinite loop is killed and reverted instead of freezing its host. Known v0 gaps are listed in SPEC section 11. A review of what a worldwide standard would still need, with severities and fixes, is in `docs/RED-TEAM.md`; `npm run redteam` re-checks the proven findings.
 
 ## Built on LLP: FLOW
 

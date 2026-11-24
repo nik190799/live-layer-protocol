@@ -1180,7 +1180,7 @@ function paintPeers(list) {
 
 (async () => {
   db = await window.claude?.use?.("db");
-  if (!db) { $("net-hint").textContent = "Cross-device streaming needs you signed in to claude.ai. Streaming to this host still works."; return; }
+  if (!db) { $("net-hint").textContent = "Cross-device streaming is not available on this page. Streaming to this host still works."; return; }
   $("net-hint").textContent = "Stream connected. Open this page on another device; pushes from either one reach both.";
   db.doc("llp/manifest").onSnapshot((snap) => { if (snap.exists) onRemote(snap.data()); }, (e) => { $("net-hint").textContent = "Stream unavailable: " + (e.message || e.code); });
   room = await window.claude?.use?.("room");
