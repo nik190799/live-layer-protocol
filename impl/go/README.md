@@ -13,7 +13,7 @@ An independent Live Layer Protocol host, written from `../../SPEC.md`. It shares
 | `cmd/llp-conformance` | Runs `../../conformance/vectors` against this host |
 
 ```
-go run ./cmd/llp-conformance ../../conformance     # 158 checks
+go run ./cmd/llp-conformance ../../conformance     # 161 checks
 go build -o llp-host ./cmd/llp-host
 ```
 

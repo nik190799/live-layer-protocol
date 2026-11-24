@@ -1,6 +1,6 @@
 {
   "name": "live-layer-protocol",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Live Layer Protocol: stream signed WebAssembly layers into a running app, no CI/CD",
   "scripts": {
     "test": "node test/run.mjs && node conformance/run-js.mjs && node test/security.mjs && node test/sandbox.mjs && node test/service.mjs && node test/live-e2e.mjs && node test/ai-loop.mjs && node test/fleet.mjs && node test/hosts.mjs && node test/channels.mjs && node test/privacy.mjs && node test/at-rest-hosts.mjs && node case-studies/run.mjs --no-write",
@@ -26,7 +26,7 @@
     "test:privacy": "node test/privacy.mjs && node test/at-rest-hosts.mjs"
   },
   "keywords": [],
-  "author": "",
+  "author": "Nikhil Ajay Kadalge",
   "license": "Apache-2.0",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",
